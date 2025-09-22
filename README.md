@@ -38,3 +38,13 @@ composer test
 ```
 
 Las pruebas se encuentran en el directorio `tests/` e incluyen dobles de WordPress para `WP_Error` y funciones comunes.
+
+## Distribución
+
+Para crear un paquete instalable del plugin, asegúrate de tener habilitada la extensión `zip` de PHP y ejecuta:
+
+```bash
+composer build-release
+```
+
+Esto generará `dist/contifico-woocommerce.zip`, que puede cargarse directamente desde el administrador de WordPress en **Plugins → Añadir nuevo → Subir plugin**.
