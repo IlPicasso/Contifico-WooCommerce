@@ -1,0 +1,21 @@
+{
+    "name": "contifico/woocommerce-integration",
+    "description": "Herramientas de desarrollo para la integración Contifico WooCommerce",
+    "type": "project",
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "brain/monkey": "^2.6",
+        "mockery/mockery": "^1.5"
+    },
+    "autoload": {},
+    "autoload-dev": {
+        "psr-4": {
+            "ContificoWooCommerce\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

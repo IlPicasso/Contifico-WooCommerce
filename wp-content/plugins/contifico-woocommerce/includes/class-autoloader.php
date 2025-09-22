@@ -80,6 +80,10 @@ class Contifico_WooCommerce_Autoloader {
                 $directory = 'public';
                 $parts     = array_slice( $parts, 1 );
                 $parts     = ! empty( $parts ) ? $parts : array( 'public' );
+            } elseif ( 'api' === $parts[0] ) {
+                $directory = 'includes/api';
+                $parts     = array_slice( $parts, 1 );
+                $parts     = ! empty( $parts ) ? $parts : array( 'api' );
             }
         }
 
