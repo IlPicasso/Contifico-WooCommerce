@@ -142,6 +142,21 @@ class Contifico_WooCommerce_Admin_Settings {
             $this->option_group,
             'contifico_woocommerce_sync'
         );
+
+        add_settings_section(
+            'contifico_woocommerce_inventory',
+            __( 'Sincronización de inventario', 'contifico-woocommerce' ),
+            '__return_false',
+            $this->option_group
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_inventory_tools',
+            __( 'Acciones disponibles', 'contifico-woocommerce' ),
+            array( $this, 'render_inventory_tools_field' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory'
+        );
     }
 
     /**
@@ -289,6 +304,7 @@ class Contifico_WooCommerce_Admin_Settings {
         }
 
         $option_group = $this->option_group;
+        $this->maybe_render_inventory_notice();
         ?>
         <div class="wrap">
             <h1><?php esc_html_e( 'Integración con Contifico', 'contifico-woocommerce' ); ?></h1>
@@ -301,5 +317,138 @@ class Contifico_WooCommerce_Admin_Settings {
             </form>
         </div>
         <?php
+    }
+
+    /**
+     * Muestra las herramientas de sincronización manual y la bitácora.
+     *
+     * @return void
+     */
+    public function render_inventory_tools_field() {
+        if ( ! class_exists( 'Contifico_WooCommerce_Sync_Inventory_Sync' ) ) {
+            echo '<p>' . esc_html__( 'La sincronización de inventario no está disponible en este momento.', 'contifico-woocommerce' ) . '</p>';
+            return;
+        }
+
+        $action_url = wp_nonce_url(
+            admin_url( 'admin-post.php?action=contifico_inventory_sync' ),
+            'contifico_inventory_sync'
+        );
+
+        echo '<p>' . esc_html__( 'Utiliza esta opción para solicitar los saldos de inventario por bodega desde Contifico.', 'contifico-woocommerce' ) . '</p>';
+        printf(
+            '<p><a href="%1$s" class="button button-secondary">%2$s</a></p>',
+            esc_url( $action_url ),
+            esc_html__( 'Sincronizar inventario ahora', 'contifico-woocommerce' )
+        );
+
+        $log = Contifico_WooCommerce_Sync_Inventory_Sync::get_last_log();
+
+        if ( empty( $log ) ) {
+            echo '<p>' . esc_html__( 'Aún no se ha ejecutado ninguna sincronización de inventario.', 'contifico-woocommerce' ) . '</p>';
+
+            return;
+        }
+
+        $timestamp = isset( $log['timestamp'] ) ? absint( $log['timestamp'] ) : 0;
+        $status    = isset( $log['status'] ) ? $log['status'] : 'success';
+        $message   = isset( $log['message'] ) ? $log['message'] : '';
+        $details   = isset( $log['data'] ) && is_array( $log['data'] ) ? $log['data'] : array();
+
+        $status_label = 'success' === $status
+            ? esc_html__( 'Completada', 'contifico-woocommerce' )
+            : esc_html__( 'Con incidencias', 'contifico-woocommerce' );
+
+        $formatted_date = $timestamp
+            ? ( function_exists( 'wp_date' )
+                ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp )
+                : date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp ) )
+            : esc_html__( 'Sin registro', 'contifico-woocommerce' );
+
+        echo '<div class="contifico-inventory-log">';
+        printf( '<p><strong>%s</strong> %s</p>', esc_html__( 'Última ejecución:', 'contifico-woocommerce' ), esc_html( $formatted_date ) );
+        printf( '<p><strong>%s</strong> %s</p>', esc_html__( 'Estado:', 'contifico-woocommerce' ), esc_html( $status_label ) );
+
+        if ( '' !== $message ) {
+            printf( '<p><strong>%s</strong> %s</p>', esc_html__( 'Mensaje:', 'contifico-woocommerce' ), esc_html( $message ) );
+        }
+
+        $summary_items = array();
+
+        if ( isset( $details['context'] ) ) {
+            $summary_items[] = sprintf(
+                '%s %s',
+                esc_html__( 'Origen:', 'contifico-woocommerce' ),
+                esc_html( Contifico_WooCommerce_Sync_Inventory_Sync::get_context_description( $details['context'] ) )
+            );
+        }
+
+        if ( isset( $details['warehouses'] ) ) {
+            $summary_items[] = sprintf(
+                esc_html__( 'Bodegas procesadas: %d', 'contifico-woocommerce' ),
+                (int) $details['warehouses']
+            );
+        }
+
+        if ( isset( $details['products_updated'] ) ) {
+            $summary_items[] = sprintf(
+                esc_html__( 'Productos actualizados: %d', 'contifico-woocommerce' ),
+                (int) $details['products_updated']
+            );
+        }
+
+        if ( ! empty( $details['errors'] ) && is_array( $details['errors'] ) ) {
+            $summary_items[] = sprintf(
+                esc_html__( 'Incidencias reportadas: %d', 'contifico-woocommerce' ),
+                count( $details['errors'] )
+            );
+        }
+
+        if ( ! empty( $summary_items ) ) {
+            echo '<ul class="contifico-inventory-log__summary">';
+
+            foreach ( $summary_items as $item ) {
+                printf( '<li>%s</li>', esc_html( $item ) );
+            }
+
+            echo '</ul>';
+        }
+
+        echo '</div>';
+    }
+
+    /**
+     * Muestra un aviso contextual después de ejecutar la sincronización manual.
+     *
+     * @return void
+     */
+    protected function maybe_render_inventory_notice() {
+        if ( ! function_exists( 'get_current_user_id' ) ) {
+            return;
+        }
+
+        if ( ! class_exists( 'Contifico_WooCommerce_Sync_Inventory_Sync' ) ) {
+            return;
+        }
+
+        $user_id = get_current_user_id();
+
+        if ( ! $user_id ) {
+            return;
+        }
+
+        $notice = Contifico_WooCommerce_Sync_Inventory_Sync::pop_notice_for_user( $user_id );
+
+        if ( empty( $notice ) ) {
+            return;
+        }
+
+        $class = 'success' === $notice['status'] ? 'notice-success' : 'notice-error';
+
+        printf(
+            '<div class="notice %1$s"><p>%2$s</p></div>',
+            esc_attr( $class ),
+            esc_html( $notice['message'] )
+        );
     }
 }
