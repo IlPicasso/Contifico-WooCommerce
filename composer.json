@@ -14,7 +14,8 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "build-release": "php bin/build-release.php"
     },
     "minimum-stability": "stable",
     "prefer-stable": true
