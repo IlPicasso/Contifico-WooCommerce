@@ -84,6 +84,10 @@ class Contifico_WooCommerce_Autoloader {
                 $directory = 'includes/api';
                 $parts     = array_slice( $parts, 1 );
                 $parts     = ! empty( $parts ) ? $parts : array( 'api' );
+            } elseif ( 'sync' === $parts[0] ) {
+                $directory = 'includes/sync';
+                $parts     = array_slice( $parts, 1 );
+                $parts     = ! empty( $parts ) ? $parts : array( 'sync' );
             }
         }
 

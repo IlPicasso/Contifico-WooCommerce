@@ -36,6 +36,13 @@ class Contifico_WooCommerce_Plugin {
     protected $public;
 
     /**
+     * Gestor de sincronización de inventario.
+     *
+     * @var Contifico_WooCommerce_Sync_Inventory_Sync
+     */
+    protected $inventory_sync;
+
+    /**
      * Gestor de ajustes del plugin.
      *
      * @var Contifico_WooCommerce_Admin_Settings
@@ -99,13 +106,15 @@ class Contifico_WooCommerce_Plugin {
             return;
         }
 
-        $this->settings = new Contifico_WooCommerce_Admin_Settings();
-        $this->admin    = new Contifico_WooCommerce_Admin( $this->version, $this->settings );
-        $this->public   = new Contifico_WooCommerce_Public( $this->version );
+        $this->settings       = new Contifico_WooCommerce_Admin_Settings();
+        $this->admin          = new Contifico_WooCommerce_Admin( $this->version, $this->settings );
+        $this->public         = new Contifico_WooCommerce_Public( $this->version );
+        $this->inventory_sync = new Contifico_WooCommerce_Sync_Inventory_Sync();
 
         $this->settings->init();
         $this->admin->init_hooks();
         $this->public->init_hooks();
+        $this->inventory_sync->init_hooks();
     }
 
     /**
@@ -168,6 +177,8 @@ class Contifico_WooCommerce_Plugin {
             );
         }
 
+        Contifico_WooCommerce_Sync_Inventory_Sync::activate();
+
         update_option( 'contifico_woocommerce_version', defined( 'CONTIFICO_WOOCOMMERCE_VERSION' ) ? CONTIFICO_WOOCOMMERCE_VERSION : '1.0.0' );
     }
 
@@ -177,6 +188,8 @@ class Contifico_WooCommerce_Plugin {
      * @return void
      */
     public static function deactivate() {
+        Contifico_WooCommerce_Sync_Inventory_Sync::deactivate();
+
         delete_option( 'contifico_woocommerce_version' );
     }
 }
