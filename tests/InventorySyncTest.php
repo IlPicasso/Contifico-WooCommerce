@@ -14,6 +14,14 @@ class Testable_Contifico_WooCommerce_Sync_Inventory_Sync extends Contifico_WooCo
         return $this->process_inventory_response( $warehouses, $args );
     }
 
+    public function call_prepare_warehouses_payload_for_batch(
+        array $products,
+        array &$state,
+        Contifico_WooCommerce_Api_Contifico_Client $client
+    ) {
+        return $this->prepare_warehouses_payload_for_batch( $products, $state, $client );
+    }
+
     public function set_client( $client ) {
         $this->client = $client;
 
@@ -163,6 +171,50 @@ class InventorySyncTest extends TestCase {
 
         $this->assertSame( 0, $summary['products_cleaned'] );
         $this->assertSame( array( 10 ), $summary['processed_product_ids'] );
+    }
+
+    public function test_prepare_warehouses_payload_skips_warehouse_when_stock_fetch_fails() {
+        $sync = new class() extends Testable_Contifico_WooCommerce_Sync_Inventory_Sync {
+            protected function get_warehouse_stock_map(
+                Contifico_WooCommerce_Api_Contifico_Client $client,
+                $warehouse_id,
+                array &$warehouse_state
+            ) {
+                return new WP_Error(
+                    'contifico_inventory_fetch_failed',
+                    sprintf( 'Failed to fetch inventory for warehouse %s.', $warehouse_id )
+                );
+            }
+        };
+
+        $client = new Contifico_WooCommerce_Api_Contifico_Client();
+
+        $state = array(
+            'warehouses' => array(
+                'main' => array(
+                    'name'              => 'Principal',
+                    'stock_cache_key'   => '',
+                    'stock_initialized' => false,
+                ),
+            ),
+        );
+
+        $products = array(
+            array(
+                'sku'          => 'SKU-123',
+                'contifico_id' => '123',
+                'name'         => 'Producto de prueba',
+            ),
+        );
+
+        $payload = $sync->call_prepare_warehouses_payload_for_batch( $products, $state, $client );
+
+        $this->assertSame( array(), $payload );
+        $this->assertArrayHasKey( 'errors', $state );
+        $this->assertSame(
+            array( 'Failed to fetch inventory for warehouse main.' ),
+            $state['errors']
+        );
     }
 
     public function test_start_batch_sync_initializes_state_and_schedules_action() {

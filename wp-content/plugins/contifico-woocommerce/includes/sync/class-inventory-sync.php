@@ -585,7 +585,18 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
                 }
 
                 $state['errors'][] = $error_message;
-                $stock_map        = array();
+
+                $cached_stock_map = false;
+
+                if ( isset( $warehouse_state['stock_cache_key'] ) && '' !== $warehouse_state['stock_cache_key'] ) {
+                    $cached_stock_map = get_transient( $warehouse_state['stock_cache_key'] );
+                }
+
+                if ( false === $cached_stock_map || ! is_array( $cached_stock_map ) ) {
+                    continue;
+                }
+
+                $stock_map = $cached_stock_map;
             }
 
             $items = array();
