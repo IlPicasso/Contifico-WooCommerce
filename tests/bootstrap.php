@@ -56,3 +56,7 @@ if ( ! defined( 'CONTIFICO_WOOCOMMERCE_DISABLE_RETRY_DELAY' ) ) {
 
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/api/class-contifico-client.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/sync/class-inventory-sync.php';
+require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-tax-helper.php';
+require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/admin/class-settings.php';
+require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-invoice-manager.php';
+
