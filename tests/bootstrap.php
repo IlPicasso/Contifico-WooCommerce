@@ -43,6 +43,7 @@ if ( ! function_exists( 'wp_parse_args' ) ) {
     }
 }
 
+
 if ( ! function_exists( 'esc_html' ) ) {
     function esc_html( $text ) {
         return $text;

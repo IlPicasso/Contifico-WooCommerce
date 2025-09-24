@@ -16,6 +16,7 @@ class Testable_Contifico_WooCommerce_Sync_Inventory_Sync extends Contifico_WooCo
 
     public function set_client( $client ) {
         $this->client = $client;
+
     }
 }
 
@@ -231,6 +232,7 @@ class InventorySyncTest extends TestCase {
         $this->assertSame( 'queued', $result['summary']['status'] );
         $this->assertSame( 1, $result['summary']['warehouses'] );
         $this->assertSame( Contifico_WooCommerce_Sync_Inventory_Sync::DEFAULT_BATCH_SIZE, $result['summary']['batch_size'] );
+
     }
 }
 
