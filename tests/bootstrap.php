@@ -43,6 +43,7 @@ if ( ! function_exists( 'wp_parse_args' ) ) {
     }
 }
 
+
 if ( ! function_exists( 'esc_html' ) ) {
     function esc_html( $text ) {
         return $text;
@@ -58,3 +59,4 @@ require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/sy
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-tax-helper.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/admin/class-settings.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-invoice-manager.php';
+

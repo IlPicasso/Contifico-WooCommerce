@@ -85,6 +85,7 @@ class InventorySyncTest extends TestCase {
 
                     return false;
                 }
+
             );
 
         Functions\expect( 'delete_post_meta' )
@@ -102,6 +103,7 @@ class InventorySyncTest extends TestCase {
                             'woocommerce_id' => 10,
                             'stock'          => 8,
                             'contifico_id'   => 'P-001',
+
                         ),
                     ),
                 ),
@@ -139,6 +141,7 @@ class InventorySyncTest extends TestCase {
 
                     return false;
                 }
+
             );
 
         Functions\expect( 'delete_post_meta' )
@@ -164,6 +167,7 @@ class InventorySyncTest extends TestCase {
                             'woocommerce_id' => 10,
                             'stock'          => 5,
                             'contifico_id'   => 'PX-99',
+
                         ),
                     ),
                 ),
@@ -246,6 +250,7 @@ class InventorySyncTest extends TestCase {
         $this->assertSame( 'queued', $result['summary']['status'] );
         $this->assertSame( 1, $result['summary']['warehouses'] );
         $this->assertSame( Contifico_WooCommerce_Sync_Inventory_Sync::DEFAULT_BATCH_SIZE, $result['summary']['batch_size'] );
+
     }
 }
 
