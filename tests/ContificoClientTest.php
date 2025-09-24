@@ -203,4 +203,78 @@ class ContificoClientTest extends TestCase {
         $this->assertSame( 'PROD123', $payload['detalles'][0]['producto_id'] );
         $this->assertSame( '5.5', $payload['detalles'][0]['cantidad'] );
     }
+
+    public function test_create_inventory_transfer_sends_payload() {
+        Functions\expect( 'get_option' )
+            ->once()
+            ->with( 'contifico_woocommerce_settings', array() )
+            ->andReturn(
+                array(
+                    'api_url' => 'https://api.example.com',
+                    'api_key' => 'token-123',
+                )
+            );
+
+        Functions\when( 'wc_stock_amount' )
+            ->alias( function ( $value ) {
+                return (float) $value;
+            } );
+
+        $captured_args = null;
+
+        Functions\expect( 'wp_remote_request' )
+            ->once()
+            ->with(
+                'https://api.example.com/movimiento-inventario/',
+                \Mockery::on(
+                    function ( $args ) use ( &$captured_args ) {
+                        $captured_args = $args;
+
+                        return isset( $args['method'] )
+                            && 'POST' === $args['method']
+                            && isset( $args['headers']['Authorization'] )
+                            && 'token-123' === $args['headers']['Authorization'];
+                    }
+                )
+            )
+            ->andReturn( array( 'body' => '', 'response' => array( 'code' => 200 ) ) );
+
+        Functions\expect( 'wp_remote_retrieve_response_code' )
+            ->once()
+            ->andReturn( 200 );
+
+        Functions\expect( 'wp_remote_retrieve_body' )
+            ->once()
+            ->andReturn( '[]' );
+
+        $client = new Contifico_WooCommerce_Api_Contifico_Client();
+        $result = $client->create_inventory_transfer(
+            array(
+                'bodega_id'         => 'main',
+                'bodega_destino_id' => 'web',
+                'descripcion'       => 'Prueba',
+                'detalles'          => array(
+                    array(
+                        'producto_id' => 'P-1',
+                        'cantidad'    => 2,
+                    ),
+                    array(
+                        'producto_id' => 'P-2',
+                        'cantidad'    => 1,
+                    ),
+                ),
+            )
+        );
+
+        $this->assertIsArray( $result );
+        $this->assertNotNull( $captured_args );
+
+        $payload = json_decode( $captured_args['body'], true );
+
+        $this->assertSame( 'TRA', $payload['tipo'] );
+        $this->assertSame( 'main', $payload['bodega_id'] );
+        $this->assertSame( 'web', $payload['bodega_destino_id'] );
+        $this->assertCount( 2, $payload['detalles'] );
+        $this->assertEquals( 2.0, $payload['detalles'][0]['cantidad'] );
+    }
 }

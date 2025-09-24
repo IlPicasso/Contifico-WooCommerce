@@ -271,6 +271,138 @@ class Contifico_WooCommerce_Api_Contifico_Client {
     }
 
     /**
+     * Registra una transferencia de inventario entre bodegas.
+     *
+     * @param array $movement Datos del movimiento a crear.
+     *
+     * @return array|WP_Error
+     */
+    public function create_inventory_transfer( array $movement ) {
+        $normalized = $this->prepare_inventory_transfer_payload( $movement );
+
+        if ( is_wp_error( $normalized ) ) {
+            return $normalized;
+        }
+
+        $this->log(
+            'info',
+            'Enviando transferencia de inventario a Contifico.',
+            array(
+                'source'      => $normalized['bodega_id'],
+                'destination' => $normalized['bodega_destino_id'],
+                'lines'       => count( $normalized['detalles'] ),
+            )
+        );
+
+        $response = $this->request(
+            'POST',
+            '/movimiento-inventario/',
+            array(
+                'body' => $normalized,
+            )
+        );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $this->log(
+            'info',
+            'Transferencia de inventario registrada correctamente en Contifico.',
+            array(
+                'source'      => $normalized['bodega_id'],
+                'destination' => $normalized['bodega_destino_id'],
+                'lines'       => count( $normalized['detalles'] ),
+            )
+        );
+
+        return $response;
+    }
+
+    /**
+     * Normaliza el payload recibido para crear una transferencia de inventario.
+     *
+     * @param array $movement Movimiento recibido externamente.
+     *
+     * @return array|WP_Error
+     */
+    protected function prepare_inventory_transfer_payload( array $movement ) {
+        if ( empty( $movement['detalles'] ) || ! is_array( $movement['detalles'] ) ) {
+            return $this->create_wp_error(
+                'contifico_invalid_transfer_details',
+                $this->translate( 'Debes incluir al menos un producto para registrar la transferencia de inventario.' )
+            );
+        }
+
+        $details = array();
+
+        foreach ( $movement['detalles'] as $detail ) {
+            if ( ! is_array( $detail ) || empty( $detail['producto_id'] ) ) {
+                continue;
+            }
+
+            $quantity = isset( $detail['cantidad'] ) ? $detail['cantidad'] : null;
+
+            if ( null === $quantity ) {
+                continue;
+            }
+
+            if ( function_exists( 'wc_stock_amount' ) ) {
+                $quantity = wc_stock_amount( $quantity );
+            } else {
+                $quantity = (float) $quantity;
+            }
+
+            if ( $quantity <= 0 ) {
+                continue;
+            }
+
+            $entry = array(
+                'producto_id' => (string) $detail['producto_id'],
+                'cantidad'    => $quantity,
+            );
+
+            if ( isset( $detail['precio'] ) && '' !== $detail['precio'] ) {
+                $entry['precio'] = $detail['precio'];
+            }
+
+            $details[] = $entry;
+        }
+
+        if ( empty( $details ) ) {
+            return $this->create_wp_error(
+                'contifico_invalid_transfer_details',
+                $this->translate( 'Debes incluir al menos un producto para registrar la transferencia de inventario.' )
+            );
+        }
+
+        if ( empty( $movement['bodega_id'] ) || empty( $movement['bodega_destino_id'] ) ) {
+            return $this->create_wp_error(
+                'contifico_missing_transfer_warehouse',
+                $this->translate( 'Debes especificar la bodega de origen y destino para registrar la transferencia.' )
+            );
+        }
+
+        $movement['detalles']          = array_values( $details );
+        $movement['bodega_id']         = (string) $movement['bodega_id'];
+        $movement['bodega_destino_id'] = (string) $movement['bodega_destino_id'];
+
+        if ( empty( $movement['fecha'] ) ) {
+            $movement['fecha'] = function_exists( 'gmdate' ) ? gmdate( 'd/m/Y' ) : date( 'd/m/Y' );
+        }
+
+        if ( empty( $movement['tipo'] ) ) {
+            $movement['tipo'] = 'TRA';
+        }
+
+        if ( isset( $movement['descripcion'] ) ) {
+            $movement['descripcion'] = (string) $movement['descripcion'];
+        }
+
+        return $movement;
+    }
+
+    /**
      * Realiza la solicitud HTTP principal contra la API de Contifico.
      *
      * @param string $method   Método HTTP (GET, POST, PUT, ...).
@@ -329,6 +461,17 @@ class Contifico_WooCommerce_Api_Contifico_Client {
             }
         }
 
+        $this->log(
+            'debug',
+            __( 'Enviando solicitud a Contifico.', 'contifico-woocommerce' ),
+            array(
+                'method' => $method,
+                'url'    => $url,
+                'query'  => $options['query'],
+                'body'   => isset( $request_args['body'] ) ? $request_args['body'] : '',
+            )
+        );
+
         $attempt     = 0;
         $max_attempts = max( 1, (int) $options['retries'] + 1 );
         $last_error  = null;
@@ -352,6 +495,13 @@ class Contifico_WooCommerce_Api_Contifico_Client {
             $status_code = (int) wp_remote_retrieve_response_code( $response );
 
             if ( $status_code >= 200 && $status_code < 300 ) {
+                $this->log(
+                    'debug',
+                    __( 'Respuesta recibida de Contifico.', 'contifico-woocommerce' ),
+                    array(
+                        'status_code' => $status_code,
+                    )
+                );
                 return $this->handle_success_response( $response );
             }
 
@@ -614,6 +764,16 @@ class Contifico_WooCommerce_Api_Contifico_Client {
      * @return void
      */
     protected function log( $level, $message, array $context = array() ) {
+        if ( ! $this->should_log_level( $level ) ) {
+            return;
+        }
+
+        $normalized_context = array();
+
+        foreach ( $context as $key => $value ) {
+            $normalized_context[ $key ] = $this->stringify_for_log( $value );
+        }
+
         $logger = $this->get_logger();
 
         if ( $logger ) {
@@ -622,7 +782,7 @@ class Contifico_WooCommerce_Api_Contifico_Client {
                 $message,
                 array_merge(
                     array( 'source' => self::LOG_SOURCE ),
-                    $context
+                    $normalized_context
                 )
             );
             return;
@@ -630,14 +790,32 @@ class Contifico_WooCommerce_Api_Contifico_Client {
 
         $context_output = '';
 
-        if ( ! empty( $context ) ) {
-            $encoded = $this->json_encode( $context );
+        if ( ! empty( $normalized_context ) ) {
+            $encoded = $this->json_encode( $normalized_context );
             if ( false !== $encoded ) {
                 $context_output = ' ' . $encoded;
             }
         }
 
         error_log( sprintf( '[%s] %s%s', strtoupper( $level ), $message, $context_output ) );
+    }
+
+    /**
+     * Determina si la configuración permite registrar el evento.
+     *
+     * @param string $level Nivel solicitado.
+     *
+     * @return bool
+     */
+    protected function should_log_level( $level ) {
+        $level            = strtolower( (string) $level );
+        $critical_levels  = array( 'emergency', 'alert', 'critical', 'error' );
+
+        if ( in_array( $level, $critical_levels, true ) ) {
+            return true;
+        }
+
+        return $this->is_logging_enabled();
     }
 
     /**
@@ -655,6 +833,73 @@ class Contifico_WooCommerce_Api_Contifico_Client {
         }
 
         return $this->logger;
+    }
+
+    /**
+     * Verifica si el registro detallado está activo en los ajustes.
+     *
+     * @return bool
+     */
+    protected function is_logging_enabled() {
+        $settings = $this->get_settings();
+
+        return isset( $settings['api_logging_enabled'] ) && 'yes' === $settings['api_logging_enabled'];
+    }
+
+    /**
+     * Devuelve una representación segura para volcar en el log.
+     *
+     * @param mixed $value Valor original.
+     *
+     * @return string
+     */
+    protected function stringify_for_log( $value ) {
+        if ( is_bool( $value ) ) {
+            $value = $value ? 'true' : 'false';
+        }
+
+        if ( is_scalar( $value ) || null === $value ) {
+            return $this->truncate_log_value( (string) $value );
+        }
+
+        if ( is_array( $value ) || is_object( $value ) ) {
+            $encoded = $this->json_encode( $value );
+
+            if ( false !== $encoded ) {
+                return $this->truncate_log_value( $encoded );
+            }
+
+            if ( function_exists( 'print_r' ) ) {
+                return $this->truncate_log_value( print_r( $value, true ) );
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Corta un valor para evitar saturar el archivo de log.
+     *
+     * @param string $value Texto original.
+     *
+     * @return string
+     */
+    protected function truncate_log_value( $value ) {
+        $max_length = (int) apply_filters( 'contifico_woocommerce_log_value_length', 2000 );
+
+        if ( function_exists( 'mb_strlen' ) ) {
+            if ( mb_strlen( $value ) > $max_length ) {
+                return mb_substr( $value, 0, $max_length ) . '…';
+            }
+
+            return $value;
+        }
+
+        if ( strlen( $value ) > $max_length ) {
+            return substr( $value, 0, $max_length ) . '…';
+        }
+
+        return $value;
     }
 
     /**
@@ -702,13 +947,27 @@ class Contifico_WooCommerce_Api_Contifico_Client {
      */
     protected function prepare_settings( array $settings ) {
         $defaults = array(
-            'api_url'    => '',
-            'api_key'    => '',
-            'api_secret' => '',
-            'warehouse'  => '',
+            'api_url'             => '',
+            'api_key'             => '',
+            'api_secret'          => '',
+            'warehouse'           => '',
+            'api_logging_enabled' => 'no',
         );
 
         return array_merge( $defaults, $settings );
+    }
+
+    /**
+     * Devuelve la ruta completa del archivo de log generado por WooCommerce.
+     *
+     * @return string
+     */
+    public static function get_log_file_path() {
+        if ( ! class_exists( 'WC_Log_Handler_File' ) ) {
+            return '';
+        }
+
+        return WC_Log_Handler_File::get_log_file_path( self::LOG_SOURCE );
     }
 
     /**
