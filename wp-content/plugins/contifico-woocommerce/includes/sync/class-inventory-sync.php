@@ -84,14 +84,31 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
     protected $logger;
 
     /**
+     * Gestor de ajustes del plugin.
+     *
+     * @var Contifico_WooCommerce_Admin_Settings|null
+     */
+    protected $settings_manager;
+
+    /**
+     * Cache interno de los ajustes cuando no se inyecta el gestor.
+     *
+     * @var array|null
+     */
+    protected $settings_cache;
+
+    /**
      * Constructor.
      *
-     * @param Contifico_WooCommerce_Api_Contifico_Client|null $client Cliente HTTP.
-     * @param WC_Logger|null                                  $logger Logger personalizado.
+     * @param Contifico_WooCommerce_Api_Contifico_Client|null $client   Cliente HTTP.
+     * @param WC_Logger|null                                  $logger   Logger personalizado.
+     * @param Contifico_WooCommerce_Admin_Settings|null       $settings Gestor de ajustes.
      */
-    public function __construct( ?Contifico_WooCommerce_Api_Contifico_Client $client = null, $logger = null ) {
-        $this->client = $client;
-        $this->logger = $logger;
+    public function __construct( ?Contifico_WooCommerce_Api_Contifico_Client $client = null, $logger = null, $settings = null ) {
+        $this->client           = $client;
+        $this->logger           = $logger;
+        $this->settings_manager = $settings;
+        $this->settings_cache   = null;
     }
 
     /**
@@ -105,6 +122,7 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
         add_action( self::BATCH_ACTION, array( $this, 'handle_batch_action' ), 10, 1 );
         add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
         add_action( 'admin_post_contifico_inventory_sync', array( $this, 'handle_admin_post_sync' ) );
+        add_filter( 'cron_schedules', array( $this, 'register_cron_schedules' ) );
     }
 
     /**
@@ -113,13 +131,42 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
      * @return void
      */
     public function schedule_cron() {
+        $schedule = $this->get_schedule_interval();
+
+        if ( '' === $schedule ) {
+            wp_clear_scheduled_hook( self::CRON_HOOK );
+            return;
+        }
+
         if ( wp_next_scheduled( self::CRON_HOOK ) ) {
             return;
         }
 
-        $interval = apply_filters( 'contifico_woocommerce_inventory_sync_interval', 'hourly' );
+        wp_schedule_event( time() + MINUTE_IN_SECONDS, $schedule, self::CRON_HOOK );
+    }
 
-        wp_schedule_event( time() + MINUTE_IN_SECONDS, $interval, self::CRON_HOOK );
+    /**
+     * Registra intervalos personalizados para la sincronización.
+     *
+     * @param array $schedules Intervalos existentes.
+     *
+     * @return array
+     */
+    public function register_cron_schedules( $schedules ) {
+        if ( ! is_array( $schedules ) ) {
+            $schedules = array();
+        }
+
+        $key = 'contifico_woocommerce_every_15_minutes';
+
+        if ( ! isset( $schedules[ $key ] ) ) {
+            $schedules[ $key ] = array(
+                'interval' => 15 * MINUTE_IN_SECONDS,
+                'display'  => __( 'Cada 15 minutos', 'contifico-woocommerce' ),
+            );
+        }
+
+        return $schedules;
     }
 
     /**
@@ -619,6 +666,7 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
                     'nombre'           => $name,
                     'contifico_id'     => $contifico_id,
                     'stock'            => $quantity,
+                    'price'            => isset( $product['price'] ) ? $product['price'] : null,
                 );
             }
 
@@ -733,566 +781,7 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
                 'sku'          => (string) $sku,
                 'name'         => $this->find_value_in_item( $item, array( 'nombre', 'name', 'descripcion', 'description' ) ),
                 'raw'          => $item,
-            );
-        }
-
-        return $products;
-    }
-
-    /**
-     * Busca el primer valor válido dentro de un arreglo utilizando varias claves posibles.
-     *
-     * @param array $item Arreglo de datos.
-     * @param array $keys Claves a evaluar.
-     *
-     * @return string
-     */
-    protected function find_value_in_item( array $item, array $keys ) {
-        foreach ( $keys as $key ) {
-            if ( isset( $item[ $key ] ) && '' !== $item[ $key ] ) {
-                return (string) $item[ $key ];
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * Convierte la respuesta de stock de Contifico en un mapa por ID de producto.
-     *
-     * @param mixed $response Datos crudos de la API.
-     *
-     * @return array
-     */
-    public function sync_inventory( $context = 'manual' ) {
-        if ( $this->can_use_batch_processing() ) {
-            return $this->start_batch_sync( $context );
-        }
-
-        return $this->run_immediate_inventory_sync( $context );
-    }
-
-    /**
-     * Ejecuta la sincronización de inventario de forma inmediata sin lotes.
-     *
-     * @param string $context Contexto de ejecución.
-     *
-     * @return array|WP_Error
-     */
-    protected function run_immediate_inventory_sync( $context ) {
-        $client = $this->get_client();
-
-
-        if ( isset( $response['results'] ) && is_array( $response['results'] ) ) {
-            $response = $response['results'];
-        } elseif ( isset( $response['data'] ) && is_array( $response['data'] ) ) {
-            $response = $response['data'];
-        }
-
-        if ( ! is_array( $response ) ) {
-            return array();
-        }
-
-        if ( ! $this->is_list( $response ) ) {
-            $response = array( $response );
-        }
-
-        $stock_map = array();
-
-        foreach ( $response as $row ) {
-            if ( ! is_array( $row ) ) {
-                continue;
-            }
-
-            $product_id = $this->find_value_in_item( $row, array( 'producto_id', 'product_id', 'id_producto', 'id' ) );
-
-            if ( '' === $product_id ) {
-                continue;
-            }
-
-            $quantity = $this->find_value_in_item( $row, array( 'cantidad_stock', 'cantidad', 'stock', 'quantity' ) );
-
-            if ( '' === $quantity ) {
-                $quantity = 0;
-            }
-
-            if ( function_exists( 'wc_stock_amount' ) ) {
-                $quantity = wc_stock_amount( $quantity );
-            } else {
-                $quantity = (float) $quantity;
-            }
-
-            $stock_map[ (string) $product_id ] = (float) $quantity;
-        }
-
-        return $stock_map;
-    }
-
-    /**
-     * Finaliza la sincronización por lotes limpiando los productos pendientes y registrando la bitácora.
-     *
-     * @param array $state Estado acumulado de la sincronización.
-     *
-     * @return void
-     */
-    protected function finalize_batch_processing( array $state ) {
-        $context = isset( $state['context'] ) ? $state['context'] : 'manual';
-
-        $cleanup_candidates = array_keys( isset( $state['cleanup_candidates'] ) ? $state['cleanup_candidates'] : array() );
-        $products_cleaned   = isset( $state['products_cleaned'] ) ? (int) $state['products_cleaned'] : 0;
-
-        if ( ! empty( $cleanup_candidates ) ) {
-            $products_cleaned += $this->cleanup_stale_inventory( array_map( 'absint', $cleanup_candidates ), array() );
-        }
-
-        $processed_products = isset( $state['processed_products'] ) && is_array( $state['processed_products'] )
-            ? count( $state['processed_products'] )
-            : 0;
-
-        $summary = array(
-            'warehouses'       => isset( $state['warehouses'] ) && is_array( $state['warehouses'] ) ? count( $state['warehouses'] ) : 0,
-            'products_updated' => $processed_products,
-            'items_processed'  => isset( $state['items_processed'] ) ? (int) $state['items_processed'] : 0,
-            'products_cleaned' => $products_cleaned,
-            'errors'           => isset( $state['errors'] ) && is_array( $state['errors'] ) ? $state['errors'] : array(),
-            'mode'             => 'batch',
-        );
-
-        if ( ! empty( $summary['errors'] ) ) {
-            foreach ( $summary['errors'] as $error_message ) {
-                $this->log( 'warning', $error_message, array( 'context' => $context ) );
-            }
-        }
-
-        $message = sprintf(
-            /* translators: 1: context label, 2: warehouse count, 3: product count */
-            esc_html__( 'Sincronización de inventario %1$s completada. Bodegas procesadas: %2$d. Productos actualizados: %3$d.', 'contifico-woocommerce' ),
-            $this->get_context_label( $context ),
-            isset( $summary['warehouses'] ) ? (int) $summary['warehouses'] : 0,
-            (int) $summary['products_updated']
-        );
-
-        $this->store_log(
-            'success',
-            $message,
-            array_merge(
-                $summary,
-                array(
-                    'context' => $context,
-                )
-            )
-        );
-
-        $this->log( 'info', $message, array( 'context' => $context ) );
-
-        $state['products_cleaned'] = $products_cleaned;
-        $state['finished']         = true;
-
-        $this->clear_batch_state( $state );
-    }
-
-    /**
-     * Inicia la sincronización de inventario en modo por lotes utilizando Action Scheduler.
-     *
-     * @param string $context Contexto desde el cual se ejecuta la sincronización.
-     *
-     * @return array|WP_Error
-     */
-    public function start_batch_sync( $context = 'manual' ) {
-        if ( $this->is_batch_running() ) {
-            $error = new WP_Error(
-                'contifico_inventory_sync_running',
-                esc_html__( 'Ya existe una sincronización de inventario en ejecución.', 'contifico-woocommerce' )
-            );
-
-            $this->log( 'warning', $error->get_error_message(), array( 'context' => $context ) );
-
-            return $error;
-        }
-
-        $client = $this->get_client();
-
-        if ( ! $client ) {
-            $error = new WP_Error(
-                'contifico_missing_client',
-                esc_html__( 'No fue posible inicializar el cliente de Contifico.', 'contifico-woocommerce' )
-            );
-
-            $this->store_log( 'error', $error->get_error_message(), array( 'context' => $context ) );
-
-            return $error;
-        }
-
-        $response = $client->get_warehouses();
-
-        if ( is_wp_error( $response ) ) {
-            $this->log( 'error', $response->get_error_message(), array( 'context' => $context ) );
-            $this->store_log(
-                'error',
-                $response->get_error_message(),
-                array(
-                    'context'    => $context,
-                    'error_code' => $response->get_error_code(),
-                )
-            );
-
-            return $response;
-        }
-
-        $warehouses = $this->normalize_warehouses( $response );
-
-        if ( empty( $warehouses ) ) {
-            return $this->run_immediate_inventory_sync( $context );
-        }
-
-        $prepared_warehouses = array();
-
-        foreach ( $warehouses as $warehouse ) {
-            $warehouse_id = $this->get_warehouse_id( $warehouse );
-
-            if ( '' === $warehouse_id ) {
-                continue;
-            }
-
-            $prepared_warehouses[ $warehouse_id ] = array(
-                'name'             => $this->get_warehouse_name( $warehouse, $warehouse_id ),
-                'stock_cache_key'  => '',
-                'stock_initialized' => false,
-            );
-        }
-
-        if ( empty( $prepared_warehouses ) ) {
-            return $this->run_immediate_inventory_sync( $context );
-        }
-
-        $batch_size = $this->get_batch_size();
-
-        $state = array(
-            'context'            => $context,
-            'batch_size'         => $batch_size,
-            'current_step'       => 1,
-            'started_at'         => current_time( 'timestamp', true ),
-            'warehouses'         => $prepared_warehouses,
-            'cleanup_candidates' => array(),
-            'processed_products' => array(),
-            'items_processed'    => 0,
-            'products_cleaned'   => 0,
-            'errors'             => array(),
-        );
-
-        $existing_inventory = $this->get_products_with_inventory_meta();
-
-        if ( ! empty( $existing_inventory ) ) {
-            $state['cleanup_candidates'] = array_fill_keys( $existing_inventory, true );
-        }
-
-        $this->save_batch_state( $state );
-        $this->enqueue_batch_step( 1 );
-
-        $message = esc_html__( 'Se inició la sincronización de inventario en segundo plano.', 'contifico-woocommerce' );
-
-        $this->log( 'info', $message, array( 'context' => $context ) );
-
-        return array(
-            'message' => $message,
-            'summary' => array(
-                'status'     => 'queued',
-                'warehouses' => count( $prepared_warehouses ),
-                'batch_size' => $batch_size,
-                'context'    => $context,
-            ),
-        );
-    }
-
-    /**
-     * Ejecuta el procesamiento de un lote específico dentro de la sincronización.
-     *
-     * @param int $step Número del lote a procesar.
-     *
-     * @return void
-     */
-    protected function process_batch_step( $step ) {
-        $state = $this->get_batch_state();
-
-        if ( empty( $state ) ) {
-            return;
-        }
-
-        $context    = isset( $state['context'] ) ? $state['context'] : 'manual';
-        $batch_size = isset( $state['batch_size'] ) ? absint( $state['batch_size'] ) : $this->get_batch_size();
-        $batch_size = $batch_size > 0 ? $batch_size : $this->get_batch_size();
-
-        $client = $this->get_client();
-
-        if ( ! $client ) {
-            $error = new WP_Error(
-                'contifico_missing_client',
-                esc_html__( 'No fue posible inicializar el cliente de Contifico.', 'contifico-woocommerce' )
-            );
-
-            $this->log( 'error', $error->get_error_message(), array( 'context' => $context ) );
-            $this->store_log( 'error', $error->get_error_message(), array( 'context' => $context ) );
-            $this->clear_batch_state( $state );
-
-            return;
-        }
-
-        $response = $client->get_items(
-            array(
-                'result_page' => $step,
-                'result_size' => $batch_size,
-            )
-        );
-
-        if ( is_wp_error( $response ) ) {
-            $this->log( 'error', $response->get_error_message(), array( 'context' => $context, 'step' => $step ) );
-            $this->store_log(
-                'error',
-                $response->get_error_message(),
-                array(
-                    'context'    => $context,
-                    'step'       => $step,
-                    'error_code' => $response->get_error_code(),
-                )
-            );
-            $this->clear_batch_state( $state );
-
-            return;
-        }
-
-        $products = $this->normalize_products_batch( $response );
-
-        if ( empty( $products ) ) {
-            $this->finalize_batch_processing( $state );
-            return;
-        }
-
-        $timestamp = current_time( 'mysql', true );
-
-        $warehouses_payload = $this->prepare_warehouses_payload_for_batch( $products, $state, $client );
-
-        $batch_summary = $this->process_inventory_response(
-            $warehouses_payload,
-            array(
-                'clean_stale'        => false,
-                'existing_inventory' => array_keys( isset( $state['cleanup_candidates'] ) ? $state['cleanup_candidates'] : array() ),
-                'timestamp'          => $timestamp,
-            )
-        );
-
-        if ( isset( $batch_summary['items_processed'] ) ) {
-            $state['items_processed'] = isset( $state['items_processed'] )
-                ? (int) $state['items_processed'] + (int) $batch_summary['items_processed']
-                : (int) $batch_summary['items_processed'];
-        }
-
-        if ( isset( $batch_summary['processed_product_ids'] ) && is_array( $batch_summary['processed_product_ids'] ) ) {
-            if ( ! isset( $state['processed_products'] ) || ! is_array( $state['processed_products'] ) ) {
-                $state['processed_products'] = array();
-            }
-
-            foreach ( $batch_summary['processed_product_ids'] as $product_id ) {
-                $product_id = absint( $product_id );
-
-                if ( ! $product_id ) {
-                    continue;
-                }
-
-                $state['processed_products'][ $product_id ] = true;
-
-                if ( isset( $state['cleanup_candidates'][ $product_id ] ) ) {
-                    unset( $state['cleanup_candidates'][ $product_id ] );
-                }
-            }
-        }
-
-        if ( ! empty( $batch_summary['errors'] ) ) {
-            $state['errors'] = isset( $state['errors'] ) && is_array( $state['errors'] )
-                ? array_merge( $state['errors'], $batch_summary['errors'] )
-                : $batch_summary['errors'];
-        }
-
-        $state['current_step'] = $step + 1;
-
-        $this->save_batch_state( $state );
-        $this->enqueue_batch_step( $step + 1 );
-    }
-
-    /**
-     * Construye la carga útil de bodegas para el lote actual.
-     *
-     * @param array                                      $products Productos normalizados devueltos por la API.
-     * @param array                                      $state    Estado actual de la sincronización.
-     * @param Contifico_WooCommerce_Api_Contifico_Client $client   Cliente HTTP de Contifico.
-     *
-     * @return array
-     */
-    protected function prepare_warehouses_payload_for_batch( array $products, array &$state, Contifico_WooCommerce_Api_Contifico_Client $client ) {
-        $payload = array();
-
-        if ( empty( $state['warehouses'] ) || ! is_array( $state['warehouses'] ) ) {
-            return $payload;
-        }
-
-        foreach ( $state['warehouses'] as $warehouse_id => &$warehouse_state ) {
-            $stock_map = $this->get_warehouse_stock_map( $client, $warehouse_id, $warehouse_state );
-
-            if ( is_wp_error( $stock_map ) ) {
-                $error_message = $stock_map->get_error_message();
-
-                if ( ! isset( $state['errors'] ) || ! is_array( $state['errors'] ) ) {
-                    $state['errors'] = array();
-                }
-
-                $state['errors'][] = $error_message;
-
-                $cached_stock_map = false;
-
-                if ( isset( $warehouse_state['stock_cache_key'] ) && '' !== $warehouse_state['stock_cache_key'] ) {
-                    $cached_stock_map = get_transient( $warehouse_state['stock_cache_key'] );
-                }
-
-                if ( false === $cached_stock_map || ! is_array( $cached_stock_map ) ) {
-                    continue;
-                }
-
-                $stock_map = $cached_stock_map;
-            }
-
-            $items = array();
-
-            foreach ( $products as $product ) {
-                $sku          = isset( $product['sku'] ) ? $product['sku'] : '';
-                $contifico_id = isset( $product['contifico_id'] ) ? (string) $product['contifico_id'] : '';
-                $name         = isset( $product['name'] ) ? $product['name'] : '';
-
-                $quantity = 0;
-
-                if ( '' !== $contifico_id && isset( $stock_map[ $contifico_id ] ) ) {
-                    $quantity = $stock_map[ $contifico_id ];
-                }
-
-                $items[] = array(
-                    'sku'              => $sku,
-                    'codigo'           => $sku,
-                    'codigo_principal' => $sku,
-                    'nombre'           => $name,
-                    'contifico_id'     => $contifico_id,
-                    'stock'            => $quantity,
-                );
-            }
-
-            $payload[] = array(
-                'id'     => $warehouse_id,
-                'nombre' => $warehouse_state['name'],
-                'items'  => $items,
-            );
-        }
-
-        return $payload;
-    }
-
-    /**
-     * Obtiene el mapa de stock para una bodega, usando caché temporal cuando es posible.
-     *
-     * @param Contifico_WooCommerce_Api_Contifico_Client $client          Cliente HTTP.
-     * @param string                                     $warehouse_id    Identificador de la bodega.
-     * @param array                                      $warehouse_state Estado almacenado de la bodega.
-     *
-     * @return array|WP_Error
-     */
-    protected function get_warehouse_stock_map( Contifico_WooCommerce_Api_Contifico_Client $client, $warehouse_id, array &$warehouse_state ) {
-        $cache_key = isset( $warehouse_state['stock_cache_key'] ) ? $warehouse_state['stock_cache_key'] : '';
-
-        if ( '' !== $cache_key ) {
-            $cached = get_transient( $cache_key );
-
-            if ( false !== $cached && is_array( $cached ) ) {
-                return $cached;
-            }
-        }
-
-        $response = $client->get_inventory_by_warehouse( $warehouse_id );
-
-        if ( is_wp_error( $response ) ) {
-            return $response;
-        }
-
-        $stock_map = $this->normalize_stock_response( $response );
-
-        $this->store_stock_cache_for_warehouse( $warehouse_id, $stock_map, $warehouse_state );
-
-        return $stock_map;
-    }
-
-    /**
-     * Guarda en un transient el stock asociado a una bodega.
-     *
-     * @param string $warehouse_id    Identificador de la bodega.
-     * @param array  $stock_map       Mapa de existencias por producto.
-     * @param array  $warehouse_state Estado actual de la bodega.
-     *
-     * @return void
-     */
-    protected function store_stock_cache_for_warehouse( $warehouse_id, array $stock_map, array &$warehouse_state ) {
-        $ttl = apply_filters( 'contifico_woocommerce_inventory_stock_cache_ttl', HOUR_IN_SECONDS );
-
-        if ( isset( $warehouse_state['stock_cache_key'] ) && '' !== $warehouse_state['stock_cache_key'] ) {
-            set_transient( $warehouse_state['stock_cache_key'], $stock_map, $ttl );
-        } else {
-            $key = self::STOCK_CACHE_TRANSIENT_PREFIX . md5( $warehouse_id . '|' . microtime() . '|' . wp_rand() );
-            set_transient( $key, $stock_map, $ttl );
-            $warehouse_state['stock_cache_key'] = $key;
-        }
-
-        $warehouse_state['stock_initialized'] = true;
-    }
-
-    /**
-     * Normaliza la respuesta de productos para trabajar siempre con una lista uniforme.
-     *
-     * @param mixed $response Respuesta de la API de Contifico.
-     *
-     * @return array
-     */
-    protected function normalize_products_batch( $response ) {
-        if ( empty( $response ) ) {
-            return array();
-        }
-
-        if ( isset( $response['results'] ) && is_array( $response['results'] ) ) {
-            $response = $response['results'];
-        } elseif ( isset( $response['data'] ) && is_array( $response['data'] ) ) {
-            $response = $response['data'];
-        }
-
-        if ( ! is_array( $response ) ) {
-            return array();
-        }
-
-        if ( ! $this->is_list( $response ) ) {
-            $response = array( $response );
-        }
-
-        $products = array();
-
-        foreach ( $response as $item ) {
-            if ( ! is_array( $item ) ) {
-                continue;
-            }
-
-            $contifico_id = $this->find_value_in_item( $item, array( 'id', 'producto_id', 'product_id', 'id_producto' ) );
-            $sku          = $this->find_value_in_item( $item, array( 'sku', 'codigo', 'codigo_principal', 'codigo_auxiliar' ) );
-
-            if ( '' === $contifico_id || '' === $sku ) {
-                continue;
-            }
-
-            $products[] = array(
-                'contifico_id' => (string) $contifico_id,
-                'sku'          => (string) $sku,
-                'name'         => $this->find_value_in_item( $item, array( 'nombre', 'name', 'descripcion', 'description' ) ),
-                'raw'          => $item,
+                'price'        => $this->resolve_price_from_item( $item ),
             );
         }
 
@@ -1481,6 +970,7 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
 
         if ( ! empty( $built_inventory['product_map'] ) ) {
             $this->persist_product_metadata( $built_inventory['product_map'] );
+            $this->maybe_sync_product_prices( $built_inventory['product_map'] );
         }
 
         return array(
@@ -1579,6 +1069,12 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
                     );
                 }
 
+                $this->append_price_to_product_map( $product_map, $product_id, $item );
+
+                if ( isset( $item['contifico_id'] ) && '' !== $item['contifico_id'] && isset( $product_map[ $product_id ] ) && ! isset( $product_map[ $product_id ]['contifico_id'] ) ) {
+                    $product_map[ $product_id ]['contifico_id'] = (string) $item['contifico_id'];
+                }
+
                 $grouped_inventory[ $product_id ][ $warehouse_id ] = array(
                     'warehouse_id'   => $warehouse_id,
                     'name'           => $warehouse_name,
@@ -1598,6 +1094,219 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
             'warehouses_count'  => $warehouses_count,
             'items_processed'   => $items_processed,
         );
+    }
+
+    /**
+     * Añade el precio detectado al mapa de productos.
+     *
+     * @param array $product_map Mapa de productos actual.
+     * @param int   $product_id  Identificador del producto.
+     * @param array $item        Datos crudos del inventario.
+     *
+     * @return void
+     */
+    protected function append_price_to_product_map( array &$product_map, $product_id, array $item ) {
+        if ( isset( $product_map[ $product_id ]['price'] ) ) {
+            return;
+        }
+
+        $price = null;
+
+        if ( isset( $item['price'] ) && '' !== $item['price'] ) {
+            $price = $item['price'];
+        } else {
+            $price = $this->resolve_price_from_item( $item );
+        }
+
+        if ( null === $price ) {
+            return;
+        }
+
+        if ( ! isset( $product_map[ $product_id ] ) ) {
+            $product_map[ $product_id ] = array();
+        }
+
+        $product_map[ $product_id ]['price'] = $price;
+    }
+
+    /**
+     * Devuelve la lista de precios seleccionada en la configuración.
+     *
+     * @return string
+     */
+    protected function get_price_list_setting() {
+        $settings = $this->get_settings();
+        $value    = isset( $settings['inventory_price_list'] ) ? $settings['inventory_price_list'] : 'none';
+        $allowed  = array( 'none', 'pvp1', 'pvp2', 'pvp3' );
+
+        if ( ! in_array( $value, $allowed, true ) ) {
+            $value = 'none';
+        }
+
+        return $value;
+    }
+
+    /**
+     * Intenta resolver el precio del producto desde la respuesta del API.
+     *
+     * @param array $item Datos crudos del producto o inventario.
+     *
+     * @return float|null
+     */
+    protected function resolve_price_from_item( array $item ) {
+        $list = $this->get_price_list_setting();
+
+        if ( 'none' === $list ) {
+            return null;
+        }
+
+        $price = null;
+
+        if ( isset( $item['price'] ) && '' !== $item['price'] ) {
+            $price = $item['price'];
+        }
+
+        if ( null === $price && isset( $item['precios'] ) && is_array( $item['precios'] ) ) {
+            $prices = $item['precios'];
+            $candidates = array( $list, strtoupper( $list ), strtolower( $list ) );
+
+            foreach ( $candidates as $candidate ) {
+                if ( isset( $prices[ $candidate ] ) && '' !== $prices[ $candidate ] ) {
+                    $price = $prices[ $candidate ];
+                    break;
+                }
+            }
+        }
+
+        $map = array(
+            'pvp1' => array( 'pvp1', 'precio_pvp1', 'precio1', 'price1', 'pvp_1' ),
+            'pvp2' => array( 'pvp2', 'precio_pvp2', 'precio2', 'price2', 'pvp_2' ),
+            'pvp3' => array( 'pvp3', 'precio_pvp3', 'precio3', 'price3', 'pvp_3' ),
+        );
+
+        if ( null === $price && isset( $map[ $list ] ) ) {
+            foreach ( $map[ $list ] as $key ) {
+                if ( isset( $item[ $key ] ) && '' !== $item[ $key ] ) {
+                    $price = $item[ $key ];
+                    break;
+                }
+            }
+        }
+
+        if ( null === $price ) {
+            foreach ( array( 'precio', 'price', 'precio_unitario', 'valor_unitario' ) as $fallback ) {
+                if ( isset( $item[ $fallback ] ) && '' !== $item[ $fallback ] ) {
+                    $price = $item[ $fallback ];
+                    break;
+                }
+            }
+        }
+
+        if ( null === $price ) {
+            return null;
+        }
+
+        return $this->normalize_price_value( $price );
+    }
+
+    /**
+     * Normaliza un valor numérico para ser utilizado como precio.
+     *
+     * @param mixed $value Valor original.
+     *
+     * @return float|null
+     */
+    protected function normalize_price_value( $value ) {
+        if ( function_exists( 'wc_format_decimal' ) ) {
+            $formatted = wc_format_decimal( $value );
+
+            if ( '' === $formatted ) {
+                return null;
+            }
+
+            $value = (float) $formatted;
+        } else {
+            if ( is_string( $value ) ) {
+                $value = str_replace( array( ' ', ',' ), array( '', '.' ), $value );
+            }
+
+            $value = floatval( $value );
+        }
+
+        if ( $value < 0 ) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Formatea un precio para almacenarlo en WooCommerce.
+     *
+     * @param float $value Valor numérico del precio.
+     *
+     * @return string
+     */
+    protected function format_price_for_product( $value ) {
+        if ( function_exists( 'wc_format_decimal' ) ) {
+            $decimals = function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2;
+            return wc_format_decimal( $value, $decimals );
+        }
+
+        return number_format( $value, 2, '.', '' );
+    }
+
+    /**
+     * Actualiza el precio regular de los productos con la información sincronizada.
+     *
+     * @param array $product_map Mapa de productos procesados.
+     *
+     * @return void
+     */
+    protected function maybe_sync_product_prices( array $product_map ) {
+        if ( 'none' === $this->get_price_list_setting() ) {
+            return;
+        }
+
+        if ( empty( $product_map ) || ! function_exists( 'wc_get_product' ) ) {
+            return;
+        }
+
+        foreach ( $product_map as $product_id => $data ) {
+            $product_id = absint( $product_id );
+
+            if ( ! $product_id || empty( $data['price'] ) ) {
+                continue;
+            }
+
+            $price_value = $this->normalize_price_value( $data['price'] );
+
+            if ( null === $price_value ) {
+                continue;
+            }
+
+            $product = wc_get_product( $product_id );
+
+            if ( ! $product instanceof WC_Product ) {
+                continue;
+            }
+
+            $current_price = $this->normalize_price_value( $product->get_regular_price() );
+
+            if ( null !== $current_price && abs( $current_price - $price_value ) < 0.0001 ) {
+                continue;
+            }
+
+            $formatted_price = $this->format_price_for_product( $price_value );
+
+            if ( method_exists( $product, 'set_regular_price' ) ) {
+                $product->set_regular_price( $formatted_price );
+                $product->save();
+            } else {
+                update_post_meta( $product_id, '_regular_price', $formatted_price );
+                update_post_meta( $product_id, '_price', $formatted_price );
+            }
+        }
     }
 
     /**
@@ -1928,6 +1637,29 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
     }
 
     /**
+     * Obtiene los ajustes almacenados de la integración.
+     *
+     * @return array
+     */
+    protected function get_settings() {
+        if ( $this->settings_manager instanceof Contifico_WooCommerce_Admin_Settings ) {
+            return $this->settings_manager->get_settings();
+        }
+
+        if ( null === $this->settings_cache ) {
+            $stored = get_option( Contifico_WooCommerce_Api_Contifico_Client::OPTION_NAME, array() );
+
+            if ( ! is_array( $stored ) ) {
+                $stored = array();
+            }
+
+            $this->settings_cache = $stored;
+        }
+
+        return $this->settings_cache;
+    }
+
+    /**
      * Obtiene el cliente HTTP configurado.
      *
      * @return Contifico_WooCommerce_Api_Contifico_Client|null
@@ -2077,12 +1809,67 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
     }
 
     /**
+     * Obtiene el intervalo configurado para la sincronización automática.
+     *
+     * @return string
+     */
+    protected function get_schedule_interval() {
+        return self::resolve_schedule_from_settings( $this->get_settings() );
+    }
+
+    /**
+     * Determina el intervalo adecuado a partir de los ajustes disponibles.
+     *
+     * @param array|null $settings Ajustes almacenados.
+     *
+     * @return string
+     */
+    protected static function resolve_schedule_from_settings( $settings = null ) {
+        if ( null === $settings ) {
+            $settings = get_option( Contifico_WooCommerce_Api_Contifico_Client::OPTION_NAME, array() );
+        }
+
+        if ( ! is_array( $settings ) ) {
+            $settings = array();
+        }
+
+        $selected = isset( $settings['inventory_sync_interval'] ) ? $settings['inventory_sync_interval'] : 'hourly';
+
+        $map = array(
+            'manual'     => '',
+            '15min'      => 'contifico_woocommerce_every_15_minutes',
+            'hourly'     => 'hourly',
+            'twicedaily' => 'twicedaily',
+            'daily'      => 'daily',
+        );
+
+        if ( ! isset( $map[ $selected ] ) ) {
+            $selected = 'hourly';
+        }
+
+        $interval = $map[ $selected ];
+
+        if ( '' === $interval ) {
+            return '';
+        }
+
+        return apply_filters( 'contifico_woocommerce_inventory_sync_interval', $interval );
+    }
+
+    /**
      * Determina el tamaño del lote a utilizar durante la sincronización.
      *
      * @return int
      */
     protected function get_batch_size() {
-        $size = apply_filters( 'contifico_woocommerce_inventory_batch_size', self::DEFAULT_BATCH_SIZE );
+        $settings = $this->get_settings();
+        $size     = isset( $settings['inventory_batch_size'] ) ? absint( $settings['inventory_batch_size'] ) : self::DEFAULT_BATCH_SIZE;
+
+        if ( $size <= 0 ) {
+            $size = self::DEFAULT_BATCH_SIZE;
+        }
+
+        $size = apply_filters( 'contifico_woocommerce_inventory_batch_size', $size );
         $size = absint( $size );
 
         if ( $size <= 0 ) {
@@ -2213,15 +2000,51 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
     }
 
     /**
+     * Reprograma el evento de sincronización según los ajustes recibidos.
+     *
+     * @param array|null $settings Ajustes a utilizar.
+     *
+     * @return void
+     */
+    public static function reschedule_cron( $settings = null ) {
+        wp_clear_scheduled_hook( self::CRON_HOOK );
+
+        $schedule = self::resolve_schedule_from_settings( $settings );
+
+        if ( '' === $schedule ) {
+            return;
+        }
+
+        wp_schedule_event( time() + MINUTE_IN_SECONDS, $schedule, self::CRON_HOOK );
+    }
+
+    /**
+     * Ejecuta la reprogramación del cron cuando se actualizan los ajustes.
+     *
+     * @param mixed $old_value Valor anterior.
+     * @param mixed $value     Valor nuevo.
+     *
+     * @return void
+     */
+    public static function maybe_reschedule_cron_on_settings_update( $old_value, $value, $option = '' ) {
+        if ( '' !== $option && Contifico_WooCommerce_Api_Contifico_Client::OPTION_NAME !== $option ) {
+            return;
+        }
+
+        if ( ! is_array( $value ) ) {
+            return;
+        }
+
+        self::reschedule_cron( $value );
+    }
+
+    /**
      * Programa el evento de sincronización al activar el plugin.
      *
      * @return void
      */
     public static function activate() {
-        if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-            $interval = apply_filters( 'contifico_woocommerce_inventory_sync_interval', 'hourly' );
-            wp_schedule_event( time() + MINUTE_IN_SECONDS, $interval, self::CRON_HOOK );
-        }
+        self::reschedule_cron();
     }
 
     /**
