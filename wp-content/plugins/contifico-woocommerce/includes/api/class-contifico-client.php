@@ -99,6 +99,33 @@ class Contifico_WooCommerce_Api_Contifico_Client {
     }
 
     /**
+     * Obtiene el inventario de una bodega específica.
+     *
+     * @param string $warehouse_id Identificador de la bodega.
+     * @param array  $params       Parámetros adicionales para la consulta.
+     *
+     * @return array|WP_Error
+     */
+    public function get_inventory_by_warehouse( $warehouse_id, array $params = array() ) {
+        if ( '' === $warehouse_id ) {
+            return $this->create_wp_error(
+                'contifico_missing_warehouse_id',
+                $this->translate( 'Debes especificar una bodega válida para consultar el inventario.' )
+            );
+        }
+
+        $warehouse_id = rawurlencode( (string) $warehouse_id );
+
+        return $this->request(
+            'GET',
+            sprintf( '/inventario/stock/bodega/%s/', $warehouse_id ),
+            array(
+                'query' => $params,
+            )
+        );
+    }
+
+    /**
      * Registra una factura en Contifico.
      *
      * @param array $invoice Datos de la factura a crear.
