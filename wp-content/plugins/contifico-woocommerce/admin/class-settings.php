@@ -157,6 +157,246 @@ class Contifico_WooCommerce_Admin_Settings {
             $this->option_group,
             'contifico_woocommerce_inventory'
         );
+
+        add_settings_section(
+            'contifico_woocommerce_invoicing',
+            __( 'Facturación electrónica', 'contifico-woocommerce' ),
+            array( $this, 'render_invoicing_section_description' ),
+            $this->option_group
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_enabled',
+            __( 'Habilitar facturación automática', 'contifico-woocommerce' ),
+            array( $this, 'render_checkbox_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_enabled',
+                'option_key' => 'invoice_enabled',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_trigger_status',
+            __( 'Estado que genera el documento', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_trigger_status',
+                'option_key' => 'invoice_trigger_status',
+                'options'    => $this->get_order_status_options(),
+                'placeholder' => __( 'Selecciona un estado de pedido…', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_document_type',
+            __( 'Tipo de documento a emitir', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_document_type',
+                'option_key' => 'invoice_document_type',
+                'options'    => array(
+                    'FAC' => __( 'Factura', 'contifico-woocommerce' ),
+                    'PRE' => __( 'Pre factura', 'contifico-woocommerce' ),
+                    'COT' => __( 'Cotización', 'contifico-woocommerce' ),
+                ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_environment',
+            __( 'Ambiente de emisión', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_environment',
+                'option_key' => 'invoice_environment',
+                'options'    => array(
+                    'test'       => __( 'Pruebas', 'contifico-woocommerce' ),
+                    'production' => __( 'Producción', 'contifico-woocommerce' ),
+                ),
+            )
+        );
+
+        $this->register_environment_fields( 'test', __( 'Configuración para pruebas', 'contifico-woocommerce' ) );
+        $this->register_environment_fields( 'production', __( 'Configuración para producción', 'contifico-woocommerce' ) );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_tax_id',
+            __( 'RUC del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_tax_id',
+                'option_key' => 'invoice_sender_tax_id',
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_name',
+            __( 'Razón social del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_name',
+                'option_key' => 'invoice_sender_name',
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_email',
+            __( 'Correo electrónico del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_email',
+                'option_key' => 'invoice_sender_email',
+                'type'       => 'email',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_phone',
+            __( 'Teléfono del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_phone',
+                'option_key' => 'invoice_sender_phone',
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_address',
+            __( 'Dirección del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_address',
+                'option_key' => 'invoice_sender_address',
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_sender_taxpayer_type',
+            __( 'Tipo de contribuyente del emisor', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_sender_taxpayer_type',
+                'option_key' => 'invoice_sender_taxpayer_type',
+                'options'    => array(
+                    'N' => __( 'Persona natural', 'contifico-woocommerce' ),
+                    'J' => __( 'Persona jurídica', 'contifico-woocommerce' ),
+                ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_invoice_shipping_code',
+            __( 'SKU del producto de envío', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => 'contifico_woocommerce_invoice_shipping_code',
+                'option_key' => 'invoice_shipping_code',
+                'type'       => 'text',
+                'description' => __( 'Código del producto en Contifico que representa el envío.', 'contifico-woocommerce' ),
+            )
+        );
+    }
+
+    /**
+     * Registra los campos específicos para cada ambiente de facturación.
+     *
+     * @param string $environment Identificador del ambiente (test o production).
+     * @param string $title       Título descriptivo que se mostrará como etiqueta.
+     *
+     * @return void
+     */
+    protected function register_environment_fields( $environment, $title ) {
+        $environment = (string) $environment;
+
+        add_settings_field(
+            "contifico_woocommerce_invoice_{$environment}_heading",
+            sprintf( __( 'Parámetros para %s', 'contifico-woocommerce' ), strtolower( $title ) ),
+            array( $this, 'render_environment_heading' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'title' => $title,
+            )
+        );
+
+        add_settings_field(
+            "contifico_woocommerce_invoice_{$environment}_token",
+            __( 'Token de punto de venta', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => "contifico_woocommerce_invoice_{$environment}_token",
+                'option_key' => "invoice_{$environment}_pos_token",
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            "contifico_woocommerce_invoice_{$environment}_establishment",
+            __( 'Código de establecimiento', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => "contifico_woocommerce_invoice_{$environment}_establishment",
+                'option_key' => "invoice_{$environment}_establishment",
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            "contifico_woocommerce_invoice_{$environment}_emission_point",
+            __( 'Punto de emisión', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => "contifico_woocommerce_invoice_{$environment}_emission_point",
+                'option_key' => "invoice_{$environment}_emission_point",
+                'type'       => 'text',
+            )
+        );
+
+        add_settings_field(
+            "contifico_woocommerce_invoice_{$environment}_next_number",
+            __( 'Número secuencial siguiente', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_invoicing',
+            array(
+                'label_for'  => "contifico_woocommerce_invoice_{$environment}_next_number",
+                'option_key' => "invoice_{$environment}_next_number",
+                'type'       => 'number',
+                'description' => __( 'Corresponde al consecutivo que se utilizará para la próxima factura.', 'contifico-woocommerce' ),
+            )
+        );
     }
 
     /**
@@ -166,6 +406,15 @@ class Contifico_WooCommerce_Admin_Settings {
      */
     public function render_section_description() {
         echo '<p>' . esc_html__( 'Introduce los datos proporcionados por Contifico para conectar la tienda.', 'contifico-woocommerce' ) . '</p>';
+    }
+
+    /**
+     * Imprime la descripción de la sección de facturación.
+     *
+     * @return void
+     */
+    public function render_invoicing_section_description() {
+        echo '<p>' . esc_html__( 'Configura la emisión de documentos electrónicos y los datos fiscales necesarios para enviarlos a Contifico.', 'contifico-woocommerce' ) . '</p>';
     }
 
     /**
@@ -197,6 +446,105 @@ class Contifico_WooCommerce_Admin_Settings {
             esc_attr( $value ),
             esc_attr( $args['placeholder'] )
         );
+
+        if ( ! empty( $args['description'] ) ) {
+            printf( '<p class="description">%s</p>', esc_html( $args['description'] ) );
+        }
+    }
+
+    /**
+     * Imprime un encabezado simple para separar grupos de campos de facturación.
+     *
+     * @param array $args Argumentos del campo.
+     *
+     * @return void
+     */
+    public function render_environment_heading( $args ) {
+        $title = isset( $args['title'] ) ? $args['title'] : '';
+
+        if ( '' !== $title ) {
+            printf( '<p class="description"><strong>%s</strong></p>', esc_html( $title ) );
+        }
+    }
+
+    /**
+     * Renderiza un checkbox con almacenamiento binario.
+     *
+     * @param array $args Argumentos del campo.
+     *
+     * @return void
+     */
+    public function render_checkbox_field( $args ) {
+        $defaults = array(
+            'label_for'   => '',
+            'option_key'  => '',
+            'description' => '',
+            'label'       => '',
+        );
+
+        $args     = wp_parse_args( $args, $defaults );
+        $settings = $this->get_settings();
+        $value    = isset( $settings[ $args['option_key'] ] ) ? $settings[ $args['option_key'] ] : '';
+        $checked  = 'yes' === $value;
+
+        printf(
+            '<label><input type="checkbox" id="%1$s" name="%2$s[%3$s]" value="yes" %4$s /> %5$s</label>',
+            esc_attr( $args['label_for'] ),
+            esc_attr( $this->option_name ),
+            esc_attr( $args['option_key'] ),
+            checked( $checked, true, false ),
+            esc_html( $args['label'] )
+        );
+
+        if ( ! empty( $args['description'] ) ) {
+            printf( '<p class="description">%s</p>', esc_html( $args['description'] ) );
+        }
+    }
+
+    /**
+     * Renderiza un campo select genérico.
+     *
+     * @param array $args Argumentos del campo.
+     *
+     * @return void
+     */
+    public function render_select_field( $args ) {
+        $defaults = array(
+            'label_for'   => '',
+            'option_key'  => '',
+            'options'     => array(),
+            'placeholder' => '',
+            'description' => '',
+        );
+
+        $args     = wp_parse_args( $args, $defaults );
+        $settings = $this->get_settings();
+        $value    = isset( $settings[ $args['option_key'] ] ) ? $settings[ $args['option_key'] ] : '';
+
+        printf(
+            '<select id="%1$s" name="%2$s[%3$s]">',
+            esc_attr( $args['label_for'] ),
+            esc_attr( $this->option_name ),
+            esc_attr( $args['option_key'] )
+        );
+
+        if ( '' !== $args['placeholder'] ) {
+            printf(
+                '<option value="">%s</option>',
+                esc_html( $args['placeholder'] )
+            );
+        }
+
+        foreach ( (array) $args['options'] as $option_value => $option_label ) {
+            printf(
+                '<option value="%1$s" %2$s>%3$s</option>',
+                esc_attr( $option_value ),
+                selected( (string) $option_value, (string) $value, false ),
+                esc_html( $option_label )
+            );
+        }
+
+        echo '</select>';
 
         if ( ! empty( $args['description'] ) ) {
             printf( '<p class="description">%s</p>', esc_html( $args['description'] ) );
@@ -243,6 +591,25 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => '',
             'warehouse'     => '',
             'sync_statuses' => array(),
+            'invoice_enabled'                 => '',
+            'invoice_trigger_status'          => '',
+            'invoice_document_type'           => 'FAC',
+            'invoice_environment'             => 'test',
+            'invoice_test_pos_token'          => '',
+            'invoice_test_establishment'      => '',
+            'invoice_test_emission_point'     => '',
+            'invoice_test_next_number'        => '',
+            'invoice_production_pos_token'    => '',
+            'invoice_production_establishment'=> '',
+            'invoice_production_emission_point' => '',
+            'invoice_production_next_number'  => '',
+            'invoice_sender_tax_id'           => '',
+            'invoice_sender_name'             => '',
+            'invoice_sender_email'            => '',
+            'invoice_sender_phone'            => '',
+            'invoice_sender_address'          => '',
+            'invoice_sender_taxpayer_type'    => 'N',
+            'invoice_shipping_code'           => '',
         );
 
         $input = wp_parse_args( (array) $input, $defaults );
@@ -253,6 +620,25 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => sanitize_text_field( $input['api_secret'] ),
             'warehouse'     => sanitize_text_field( $input['warehouse'] ),
             'sync_statuses' => array(),
+            'invoice_enabled'                 => ! empty( $input['invoice_enabled'] ) ? 'yes' : 'no',
+            'invoice_trigger_status'          => sanitize_text_field( $input['invoice_trigger_status'] ),
+            'invoice_document_type'           => in_array( $input['invoice_document_type'], array( 'FAC', 'PRE', 'COT' ), true ) ? $input['invoice_document_type'] : 'FAC',
+            'invoice_environment'             => in_array( $input['invoice_environment'], array( 'test', 'production' ), true ) ? $input['invoice_environment'] : 'test',
+            'invoice_test_pos_token'          => sanitize_text_field( $input['invoice_test_pos_token'] ),
+            'invoice_test_establishment'      => sanitize_text_field( $input['invoice_test_establishment'] ),
+            'invoice_test_emission_point'     => sanitize_text_field( $input['invoice_test_emission_point'] ),
+            'invoice_test_next_number'        => sanitize_text_field( $input['invoice_test_next_number'] ),
+            'invoice_production_pos_token'    => sanitize_text_field( $input['invoice_production_pos_token'] ),
+            'invoice_production_establishment'=> sanitize_text_field( $input['invoice_production_establishment'] ),
+            'invoice_production_emission_point' => sanitize_text_field( $input['invoice_production_emission_point'] ),
+            'invoice_production_next_number'  => sanitize_text_field( $input['invoice_production_next_number'] ),
+            'invoice_sender_tax_id'           => sanitize_text_field( $input['invoice_sender_tax_id'] ),
+            'invoice_sender_name'             => sanitize_text_field( $input['invoice_sender_name'] ),
+            'invoice_sender_email'            => sanitize_email( $input['invoice_sender_email'] ),
+            'invoice_sender_phone'            => sanitize_text_field( $input['invoice_sender_phone'] ),
+            'invoice_sender_address'          => sanitize_text_field( $input['invoice_sender_address'] ),
+            'invoice_sender_taxpayer_type'    => in_array( $input['invoice_sender_taxpayer_type'], array( 'N', 'J' ), true ) ? $input['invoice_sender_taxpayer_type'] : 'N',
+            'invoice_shipping_code'           => sanitize_text_field( $input['invoice_shipping_code'] ),
         );
 
         if ( ! empty( $input['sync_statuses'] ) && is_array( $input['sync_statuses'] ) ) {
@@ -275,11 +661,57 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => '',
             'warehouse'     => '',
             'sync_statuses' => array(),
+            'invoice_enabled'                 => 'no',
+            'invoice_trigger_status'          => '',
+            'invoice_document_type'           => 'FAC',
+            'invoice_environment'             => 'test',
+            'invoice_test_pos_token'          => '',
+            'invoice_test_establishment'      => '',
+            'invoice_test_emission_point'     => '',
+            'invoice_test_next_number'        => '',
+            'invoice_production_pos_token'    => '',
+            'invoice_production_establishment'=> '',
+            'invoice_production_emission_point' => '',
+            'invoice_production_next_number'  => '',
+            'invoice_sender_tax_id'           => '',
+            'invoice_sender_name'             => '',
+            'invoice_sender_email'            => '',
+            'invoice_sender_phone'            => '',
+            'invoice_sender_address'          => '',
+            'invoice_sender_taxpayer_type'    => 'N',
+            'invoice_shipping_code'           => '',
         );
 
         $settings = get_option( $this->option_name, array() );
 
         return wp_parse_args( $settings, $defaults );
+    }
+
+    /**
+     * Actualiza un conjunto de ajustes sin perder valores existentes.
+     *
+     * @param array $values Valores a almacenar.
+     *
+     * @return void
+     */
+    public function update_settings( array $values ) {
+        $current  = $this->get_settings();
+        $filtered = array_merge( $current, $values );
+
+        update_option( $this->option_name, $filtered );
+    }
+
+    /**
+     * Obtiene la lista de estados de pedido disponibles en WooCommerce.
+     *
+     * @return array
+     */
+    protected function get_order_status_options() {
+        if ( function_exists( 'wc_get_order_statuses' ) ) {
+            return wc_get_order_statuses();
+        }
+
+        return array();
     }
 
     /**

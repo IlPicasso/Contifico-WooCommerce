@@ -50,6 +50,13 @@ class Contifico_WooCommerce_Plugin {
     protected $settings;
 
     /**
+     * Gestor encargado de la facturación.
+     *
+     * @var Contifico_WooCommerce_Invoice_Manager
+     */
+    protected $invoice_manager;
+
+    /**
      * Versión actual del plugin.
      *
      * @var string
@@ -110,11 +117,15 @@ class Contifico_WooCommerce_Plugin {
         $this->admin          = new Contifico_WooCommerce_Admin( $this->version, $this->settings );
         $this->public         = new Contifico_WooCommerce_Public( $this->version );
         $this->inventory_sync = new Contifico_WooCommerce_Sync_Inventory_Sync();
+        $logger               = function_exists( 'wc_get_logger' ) ? wc_get_logger() : null;
+        $client               = new Contifico_WooCommerce_Api_Contifico_Client( $logger );
+        $this->invoice_manager = new Contifico_WooCommerce_Invoice_Manager( $this->settings, $client, $logger );
 
         $this->settings->init();
         $this->admin->init_hooks();
         $this->public->init_hooks();
         $this->inventory_sync->init_hooks();
+        $this->invoice_manager->init_hooks();
     }
 
     /**
