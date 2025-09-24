@@ -43,6 +43,13 @@ class Contifico_WooCommerce_Plugin {
     protected $inventory_sync;
 
     /**
+     * Administrador de transferencias automáticas de inventario.
+     *
+     * @var Contifico_WooCommerce_Inventory_Transfer_Manager
+     */
+    protected $inventory_transfer_manager;
+
+    /**
      * Gestor de ajustes del plugin.
      *
      * @var Contifico_WooCommerce_Admin_Settings
@@ -113,19 +120,37 @@ class Contifico_WooCommerce_Plugin {
             return;
         }
 
-        $this->settings       = new Contifico_WooCommerce_Admin_Settings();
-        $this->admin          = new Contifico_WooCommerce_Admin( $this->version, $this->settings );
-        $this->public         = new Contifico_WooCommerce_Public( $this->version );
-        $this->inventory_sync = new Contifico_WooCommerce_Sync_Inventory_Sync();
-        $logger               = function_exists( 'wc_get_logger' ) ? wc_get_logger() : null;
-        $client               = new Contifico_WooCommerce_Api_Contifico_Client( $logger );
-        $this->invoice_manager = new Contifico_WooCommerce_Invoice_Manager( $this->settings, $client, $logger );
+        $this->settings = new Contifico_WooCommerce_Admin_Settings();
+        $this->admin    = new Contifico_WooCommerce_Admin( $this->version, $this->settings );
+        $this->public   = new Contifico_WooCommerce_Public( $this->version );
+
+        $logger = null;
+
+        if ( function_exists( 'wc_get_logger' ) ) {
+            $logger = wc_get_logger();
+        } elseif ( class_exists( 'WC_Logger' ) ) {
+            $logger = new WC_Logger();
+        }
+
+        $client = new Contifico_WooCommerce_Api_Contifico_Client( $logger );
+
+        $this->inventory_sync             = new Contifico_WooCommerce_Sync_Inventory_Sync( $client, $logger, $this->settings );
+        $this->invoice_manager            = new Contifico_WooCommerce_Invoice_Manager( $this->settings, $client, $logger );
+        $this->inventory_transfer_manager = new Contifico_WooCommerce_Inventory_Transfer_Manager( $this->settings, $client, $logger );
+
+        add_action(
+            'update_option_' . Contifico_WooCommerce_Api_Contifico_Client::OPTION_NAME,
+            array( 'Contifico_WooCommerce_Sync_Inventory_Sync', 'maybe_reschedule_cron_on_settings_update' ),
+            10,
+            3
+        );
 
         $this->settings->init();
         $this->admin->init_hooks();
         $this->public->init_hooks();
         $this->inventory_sync->init_hooks();
         $this->invoice_manager->init_hooks();
+        $this->inventory_transfer_manager->init_hooks();
     }
 
     /**

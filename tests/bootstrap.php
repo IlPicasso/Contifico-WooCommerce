@@ -10,10 +10,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/stubs/class-wp-error.php';
+require_once __DIR__ . '/stubs/class-wc-product.php';
+require_once __DIR__ . '/stubs/class-wc-order.php';
+require_once __DIR__ . '/stubs/class-wc-order-item-product.php';
 
 if ( ! function_exists( 'is_wp_error' ) ) {
     function is_wp_error( $thing ) {
         return $thing instanceof WP_Error;
+    }
+}
+
+if ( ! function_exists( 'wc_get_product' ) ) {
+    function wc_get_product( $product_id ) {
+        $key = 'contifico_wc_test_products';
+
+        if ( isset( $GLOBALS[ $key ] ) && is_array( $GLOBALS[ $key ] ) && isset( $GLOBALS[ $key ][ $product_id ] ) ) {
+            return $GLOBALS[ $key ][ $product_id ];
+        }
+
+        return null;
     }
 }
 
@@ -56,6 +71,7 @@ if ( ! defined( 'CONTIFICO_WOOCOMMERCE_DISABLE_RETRY_DELAY' ) ) {
 
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/api/class-contifico-client.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/sync/class-inventory-sync.php';
+require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-inventory-transfer-manager.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-tax-helper.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/admin/class-settings.php';
 require_once __DIR__ . '/../wp-content/plugins/contifico-woocommerce/includes/class-invoice-manager.php';

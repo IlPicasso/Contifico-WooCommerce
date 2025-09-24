@@ -6,6 +6,16 @@ use PHPUnit\Framework\TestCase;
 
 class Testable_Contifico_WooCommerce_Sync_Inventory_Sync extends Contifico_WooCommerce_Sync_Inventory_Sync {
 
+    public function __construct( $client = null, $logger = null, $settings = null ) {
+        parent::__construct( $client, $logger, $settings );
+
+        if ( null === $this->settings_cache ) {
+            $this->settings_cache = array(
+                'inventory_price_list' => 'none',
+            );
+        }
+    }
+
     public function call_resolve_product_id( array $item ) {
         return $this->resolve_product_id( $item );
     }
@@ -16,6 +26,14 @@ class Testable_Contifico_WooCommerce_Sync_Inventory_Sync extends Contifico_WooCo
 
     public function set_client( $client ) {
         $this->client = $client;
+    }
+
+    public function set_settings_cache( array $settings ) {
+        $this->settings_cache = $settings;
+    }
+
+    public function call_maybe_sync_product_prices( array $product_map ) {
+        $this->maybe_sync_product_prices( $product_map );
     }
 }
 
@@ -251,6 +269,48 @@ class InventorySyncTest extends TestCase {
         $this->assertSame( 1, $result['summary']['warehouses'] );
         $this->assertSame( Contifico_WooCommerce_Sync_Inventory_Sync::DEFAULT_BATCH_SIZE, $result['summary']['batch_size'] );
 
+    }
+
+    public function test_maybe_sync_product_prices_updates_regular_price() {
+        $product = new WC_Product(
+            array(
+                'id'            => 10,
+                'regular_price' => '9.99',
+                'meta'          => array( '_contifico_product_id' => 'P-001' ),
+            )
+        );
+
+        $sync = new Testable_Contifico_WooCommerce_Sync_Inventory_Sync();
+        $sync->set_settings_cache(
+            array(
+                'inventory_price_list' => 'pvp1',
+            )
+        );
+
+        Functions\when( 'wc_format_decimal' )
+            ->alias(
+                function ( $value, $decimals = 2 ) {
+                    return number_format( (float) $value, $decimals, '.', '' );
+                }
+            );
+
+        Functions\when( 'wc_get_price_decimals' )
+            ->justReturn( 2 );
+
+        $GLOBALS['contifico_wc_test_products'][10] = $product;
+
+        $sync->call_maybe_sync_product_prices(
+            array(
+                10 => array( 'price' => '15.5' ),
+            )
+        );
+
+        unset( $GLOBALS['contifico_wc_test_products'][10] );
+        if ( empty( $GLOBALS['contifico_wc_test_products'] ) ) {
+            unset( $GLOBALS['contifico_wc_test_products'] );
+        }
+
+        $this->assertSame( '15.50', $product->get_regular_price() );
     }
 }
 

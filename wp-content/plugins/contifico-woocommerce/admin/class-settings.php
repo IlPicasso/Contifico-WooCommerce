@@ -36,6 +36,7 @@ class Contifico_WooCommerce_Admin_Settings {
     public function init() {
         add_action( 'admin_menu', array( $this, 'register_menu' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
+        add_action( 'admin_post_contifico_download_api_log', array( $this, 'handle_api_log_download' ) );
     }
 
     /**
@@ -115,6 +116,18 @@ class Contifico_WooCommerce_Admin_Settings {
         );
 
         add_settings_field(
+            'contifico_woocommerce_api_logging',
+            __( 'Registro de solicitudes', 'contifico-woocommerce' ),
+            array( $this, 'render_api_logging_field' ),
+            $this->option_group,
+            'contifico_woocommerce_api',
+            array(
+                'label_for'  => 'contifico_woocommerce_api_logging',
+                'option_key' => 'api_logging_enabled',
+            )
+        );
+
+        add_settings_field(
             'contifico_woocommerce_warehouse',
             __( 'Bodega o punto de emisión', 'contifico-woocommerce' ),
             array( $this, 'render_text_field' ),
@@ -143,6 +156,52 @@ class Contifico_WooCommerce_Admin_Settings {
             'contifico_woocommerce_sync'
         );
 
+        add_settings_field(
+            'contifico_woocommerce_sync_interval',
+            __( 'Frecuencia automática', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_sync',
+            array(
+                'label_for'   => 'contifico_woocommerce_sync_interval',
+                'option_key'  => 'inventory_sync_interval',
+                'options'     => $this->get_inventory_interval_options(),
+                'description' => __( 'Define cada cuánto se consultará el inventario desde Contifico.', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_sync_batch_size',
+            __( 'Tamaño del lote', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_sync',
+            array(
+                'label_for'   => 'contifico_woocommerce_sync_batch_size',
+                'option_key'  => 'inventory_batch_size',
+                'type'        => 'number',
+                'description' => __( 'Número de productos que se procesarán en cada lote cuando Action Scheduler esté disponible.', 'contifico-woocommerce' ),
+                'attributes'  => array(
+                    'min'  => 10,
+                    'step' => 10,
+                ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_sync_price_list',
+            __( 'Lista de precios a usar', 'contifico-woocommerce' ),
+            array( $this, 'render_select_field' ),
+            $this->option_group,
+            'contifico_woocommerce_sync',
+            array(
+                'label_for'   => 'contifico_woocommerce_sync_price_list',
+                'option_key'  => 'inventory_price_list',
+                'options'     => $this->get_price_list_options(),
+                'description' => __( 'Selecciona qué lista PVP actualizará el precio regular en WooCommerce durante la sincronización.', 'contifico-woocommerce' ),
+            )
+        );
+
         add_settings_section(
             'contifico_woocommerce_inventory',
             __( 'Sincronización de inventario', 'contifico-woocommerce' ),
@@ -156,6 +215,77 @@ class Contifico_WooCommerce_Admin_Settings {
             array( $this, 'render_inventory_tools_field' ),
             $this->option_group,
             'contifico_woocommerce_inventory'
+        );
+
+        add_settings_section(
+            'contifico_woocommerce_inventory_transfer',
+            __( 'Movimientos entre bodegas', 'contifico-woocommerce' ),
+            '__return_false',
+            $this->option_group
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_transfer_enabled',
+            __( 'Transferencias automáticas', 'contifico-woocommerce' ),
+            array( $this, 'render_checkbox_field' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory_transfer',
+            array(
+                'label_for'  => 'contifico_woocommerce_transfer_enabled',
+                'option_key' => 'inventory_transfer_enabled',
+                'label'      => __( 'Mover stock entre bodegas al cambiar el estado del pedido.', 'contifico-woocommerce' ),
+                'description'=> __( 'Traslada unidades entre la bodega física y la bodega web cuando el pedido avanza o se revierte.', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_transfer_source',
+            __( 'Bodega origen', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory_transfer',
+            array(
+                'label_for'   => 'contifico_woocommerce_transfer_source',
+                'option_key'  => 'inventory_transfer_source',
+                'description' => __( 'Identificador de la bodega desde la cual se descontará el stock.', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_transfer_destination',
+            __( 'Bodega destino', 'contifico-woocommerce' ),
+            array( $this, 'render_text_field' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory_transfer',
+            array(
+                'label_for'   => 'contifico_woocommerce_transfer_destination',
+                'option_key'  => 'inventory_transfer_destination',
+                'description' => __( 'Identificador de la bodega que recibirá el stock reservado para la tienda en línea.', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_transfer_decrease_statuses',
+            __( 'Estados que reservan stock', 'contifico-woocommerce' ),
+            array( $this, 'render_statuses_field_custom' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory_transfer',
+            array(
+                'option_key' => 'inventory_transfer_decrease_statuses',
+                'description'=> __( 'Cuando el pedido alcance alguno de estos estados se moverá stock desde la bodega origen a la bodega destino.', 'contifico-woocommerce' ),
+            )
+        );
+
+        add_settings_field(
+            'contifico_woocommerce_transfer_restore_statuses',
+            __( 'Estados que devuelven stock', 'contifico-woocommerce' ),
+            array( $this, 'render_statuses_field_custom' ),
+            $this->option_group,
+            'contifico_woocommerce_inventory_transfer',
+            array(
+                'option_key' => 'inventory_transfer_restore_statuses',
+                'description'=> __( 'Cuando el pedido regrese a alguno de estos estados se revertirá el movimiento de inventario.', 'contifico-woocommerce' ),
+            )
         );
 
         add_settings_section(
@@ -431,20 +561,34 @@ class Contifico_WooCommerce_Admin_Settings {
             'type'        => 'text',
             'placeholder' => '',
             'description' => '',
+            'attributes'  => array(),
         );
 
         $args     = wp_parse_args( $args, $defaults );
         $settings = $this->get_settings();
         $value    = isset( $settings[ $args['option_key'] ] ) ? $settings[ $args['option_key'] ] : '';
 
+        $attributes = '';
+
+        if ( ! empty( $args['attributes'] ) && is_array( $args['attributes'] ) ) {
+            foreach ( $args['attributes'] as $attr_key => $attr_value ) {
+                if ( '' === $attr_key ) {
+                    continue;
+                }
+
+                $attributes .= sprintf( ' %s="%s"', esc_attr( $attr_key ), esc_attr( $attr_value ) );
+            }
+        }
+
         printf(
-            '<input type="%1$s" id="%2$s" name="%3$s[%4$s]" value="%5$s" class="regular-text" placeholder="%6$s" />',
+            '<input type="%1$s" id="%2$s" name="%3$s[%4$s]" value="%5$s" class="regular-text" placeholder="%6$s"%7$s />',
             esc_attr( $args['type'] ),
             esc_attr( $args['label_for'] ),
             esc_attr( $this->option_name ),
             esc_attr( $args['option_key'] ),
             esc_attr( $value ),
-            esc_attr( $args['placeholder'] )
+            esc_attr( $args['placeholder'] ),
+            $attributes
         );
 
         if ( ! empty( $args['description'] ) ) {
@@ -552,13 +696,118 @@ class Contifico_WooCommerce_Admin_Settings {
     }
 
     /**
+     * Renderiza el campo de activación del log de la API y el acceso al archivo.
+     *
+     * @param array $args Argumentos del campo.
+     *
+     * @return void
+     */
+    public function render_api_logging_field( $args ) {
+        $args = wp_parse_args(
+            $args,
+            array(
+                'label_for'  => 'contifico_woocommerce_api_logging',
+                'option_key' => 'api_logging_enabled',
+            )
+        );
+
+        $settings = $this->get_settings();
+        $enabled  = isset( $settings[ $args['option_key'] ] ) && 'yes' === $settings[ $args['option_key'] ];
+
+        printf(
+            '<label><input type="checkbox" id="%1$s" name="%2$s[%3$s]" value="yes" %4$s /> %5$s</label>',
+            esc_attr( $args['label_for'] ),
+            esc_attr( $this->option_name ),
+            esc_attr( $args['option_key'] ),
+            checked( $enabled, true, false ),
+            esc_html__( 'Guardar un registro detallado de las solicitudes a la API de Contifico.', 'contifico-woocommerce' )
+        );
+
+        $description = __( 'Activa esta opción sólo cuando necesites diagnosticar problemas de conexión.', 'contifico-woocommerce' );
+        printf( '<p class="description">%s</p>', esc_html( $description ) );
+
+        if ( ! class_exists( 'Contifico_WooCommerce_Api_Contifico_Client' ) ) {
+            return;
+        }
+
+        $log_path = Contifico_WooCommerce_Api_Contifico_Client::get_log_file_path();
+
+        if ( ! $enabled ) {
+            if ( $log_path && file_exists( $log_path ) ) {
+                printf(
+                    '<p class="description">%s</p>',
+                    esc_html__( 'El archivo existente se conservará aunque el registro esté desactivado.', 'contifico-woocommerce' )
+                );
+            }
+
+            return;
+        }
+
+        if ( ! $log_path || ! file_exists( $log_path ) ) {
+            echo '<p class="description">' . esc_html__( 'Aún no se ha generado ningún archivo de registro.', 'contifico-woocommerce' ) . '</p>';
+            return;
+        }
+
+        $url  = wp_nonce_url( admin_url( 'admin-post.php?action=contifico_download_api_log' ), 'contifico_download_api_log' );
+        $size = function_exists( 'size_format' ) ? size_format( filesize( $log_path ) ) : round( filesize( $log_path ) / 1024, 2 ) . ' KB';
+
+        printf(
+            '<p><a href="%1$s" class="button">%2$s</a> <span class="description">%3$s</span></p>',
+            esc_url( $url ),
+            esc_html__( 'Descargar registro', 'contifico-woocommerce' ),
+            sprintf(
+                /* translators: 1: log file path, 2: formatted file size */
+                esc_html__( 'Archivo actual: %1$s (%2$s).', 'contifico-woocommerce' ),
+                esc_html( $log_path ),
+                esc_html( $size )
+            )
+        );
+    }
+
+    /**
      * Renderiza los checkboxes para seleccionar los estados que se sincronizarán.
      *
      * @return void
      */
     public function render_statuses_field() {
+        $this->render_status_checkboxes( 'sync_statuses' );
+    }
+
+    /**
+     * Renderiza un grupo de checkboxes reutilizable para listas de estados.
+     *
+     * @param array $args Argumentos del campo.
+     *
+     * @return void
+     */
+    public function render_statuses_field_custom( $args ) {
+        $args = wp_parse_args(
+            $args,
+            array(
+                'option_key'  => '',
+                'description' => '',
+            )
+        );
+
+        if ( '' === $args['option_key'] ) {
+            echo '<p>' . esc_html__( 'No se pudo cargar la lista de estados de pedido.', 'contifico-woocommerce' ) . '</p>';
+            return;
+        }
+
+        $this->render_status_checkboxes( $args['option_key'], $args['description'] );
+    }
+
+    /**
+     * Imprime los checkboxes asociados a un option determinado.
+     *
+     * @param string $option_key  Clave dentro del arreglo de ajustes.
+     * @param string $description Texto opcional que se mostrará bajo la lista.
+     *
+     * @return void
+     */
+    protected function render_status_checkboxes( $option_key, $description = '' ) {
         $settings = $this->get_settings();
-        $current  = isset( $settings['sync_statuses'] ) && is_array( $settings['sync_statuses'] ) ? $settings['sync_statuses'] : array();
+        $current  = isset( $settings[ $option_key ] ) && is_array( $settings[ $option_key ] ) ? $settings[ $option_key ] : array();
         $statuses = function_exists( 'wc_get_order_statuses' ) ? wc_get_order_statuses() : array();
 
         if ( empty( $statuses ) ) {
@@ -568,13 +817,47 @@ class Contifico_WooCommerce_Admin_Settings {
 
         foreach ( $statuses as $status_key => $status_label ) {
             printf(
-                '<label><input type="checkbox" name="%1$s[sync_statuses][]" value="%2$s" %3$s /> %4$s</label><br />',
+                '<label><input type="checkbox" name="%1$s[%2$s][]" value="%3$s" %4$s /> %5$s</label><br />',
                 esc_attr( $this->option_name ),
+                esc_attr( $option_key ),
                 esc_attr( $status_key ),
                 checked( in_array( $status_key, $current, true ), true, false ),
                 esc_html( $status_label )
             );
         }
+
+        if ( '' !== $description ) {
+            printf( '<p class="description">%s</p>', esc_html( $description ) );
+        }
+    }
+
+    /**
+     * Devuelve las opciones disponibles para el intervalo de sincronización automática.
+     *
+     * @return array
+     */
+    protected function get_inventory_interval_options() {
+        return array(
+            'manual'     => __( 'Manual (no programar)', 'contifico-woocommerce' ),
+            '15min'      => __( 'Cada 15 minutos', 'contifico-woocommerce' ),
+            'hourly'     => __( 'Cada hora', 'contifico-woocommerce' ),
+            'twicedaily' => __( 'Dos veces al día', 'contifico-woocommerce' ),
+            'daily'      => __( 'Diario', 'contifico-woocommerce' ),
+        );
+    }
+
+    /**
+     * Devuelve las listas de precio disponibles para sincronizar.
+     *
+     * @return array
+     */
+    protected function get_price_list_options() {
+        return array(
+            'none' => __( 'No actualizar precios', 'contifico-woocommerce' ),
+            'pvp1' => __( 'PVP1', 'contifico-woocommerce' ),
+            'pvp2' => __( 'PVP2', 'contifico-woocommerce' ),
+            'pvp3' => __( 'PVP3', 'contifico-woocommerce' ),
+        );
     }
 
     /**
@@ -591,6 +874,15 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => '',
             'warehouse'     => '',
             'sync_statuses' => array(),
+            'api_logging_enabled'             => '',
+            'inventory_sync_interval'         => 'hourly',
+            'inventory_batch_size'            => 100,
+            'inventory_price_list'            => 'none',
+            'inventory_transfer_enabled'      => '',
+            'inventory_transfer_source'       => '',
+            'inventory_transfer_destination'  => '',
+            'inventory_transfer_decrease_statuses' => array(),
+            'inventory_transfer_restore_statuses'  => array(),
             'invoice_enabled'                 => '',
             'invoice_trigger_status'          => '',
             'invoice_document_type'           => 'FAC',
@@ -620,6 +912,15 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => sanitize_text_field( $input['api_secret'] ),
             'warehouse'     => sanitize_text_field( $input['warehouse'] ),
             'sync_statuses' => array(),
+            'api_logging_enabled'             => ! empty( $input['api_logging_enabled'] ) ? 'yes' : 'no',
+            'inventory_sync_interval'         => $this->sanitize_inventory_interval( $input['inventory_sync_interval'] ),
+            'inventory_batch_size'            => $this->sanitize_batch_size( $input['inventory_batch_size'] ),
+            'inventory_price_list'            => $this->sanitize_price_list( $input['inventory_price_list'] ),
+            'inventory_transfer_enabled'      => ! empty( $input['inventory_transfer_enabled'] ) ? 'yes' : 'no',
+            'inventory_transfer_source'       => sanitize_text_field( $input['inventory_transfer_source'] ),
+            'inventory_transfer_destination'  => sanitize_text_field( $input['inventory_transfer_destination'] ),
+            'inventory_transfer_decrease_statuses' => array(),
+            'inventory_transfer_restore_statuses'  => array(),
             'invoice_enabled'                 => ! empty( $input['invoice_enabled'] ) ? 'yes' : 'no',
             'invoice_trigger_status'          => sanitize_text_field( $input['invoice_trigger_status'] ),
             'invoice_document_type'           => in_array( $input['invoice_document_type'], array( 'FAC', 'PRE', 'COT' ), true ) ? $input['invoice_document_type'] : 'FAC',
@@ -646,6 +947,15 @@ class Contifico_WooCommerce_Admin_Settings {
             $sanitized['sync_statuses'] = array_values( array_unique( $statuses ) );
         }
 
+        foreach ( array( 'inventory_transfer_decrease_statuses', 'inventory_transfer_restore_statuses' ) as $status_key ) {
+            if ( empty( $input[ $status_key ] ) || ! is_array( $input[ $status_key ] ) ) {
+                continue;
+            }
+
+            $values = array_map( 'sanitize_text_field', $input[ $status_key ] );
+            $sanitized[ $status_key ] = array_values( array_unique( $values ) );
+        }
+
         return $sanitized;
     }
 
@@ -661,6 +971,15 @@ class Contifico_WooCommerce_Admin_Settings {
             'api_secret'    => '',
             'warehouse'     => '',
             'sync_statuses' => array(),
+            'api_logging_enabled'             => 'no',
+            'inventory_sync_interval'         => 'hourly',
+            'inventory_batch_size'            => 100,
+            'inventory_price_list'            => 'none',
+            'inventory_transfer_enabled'      => 'no',
+            'inventory_transfer_source'       => '',
+            'inventory_transfer_destination'  => '',
+            'inventory_transfer_decrease_statuses' => array(),
+            'inventory_transfer_restore_statuses'  => array(),
             'invoice_enabled'                 => 'no',
             'invoice_trigger_status'          => '',
             'invoice_document_type'           => 'FAC',
@@ -685,6 +1004,59 @@ class Contifico_WooCommerce_Admin_Settings {
         $settings = get_option( $this->option_name, array() );
 
         return wp_parse_args( $settings, $defaults );
+    }
+
+    /**
+     * Limpia el valor recibido para el intervalo de sincronización.
+     *
+     * @param string $value Valor recibido desde el formulario.
+     *
+     * @return string
+     */
+    protected function sanitize_inventory_interval( $value ) {
+        $value   = is_string( $value ) ? $value : '';
+        $options = $this->get_inventory_interval_options();
+
+        if ( array_key_exists( $value, $options ) ) {
+            return $value;
+        }
+
+        return 'hourly';
+    }
+
+    /**
+     * Asegura que el tamaño del lote sea un entero positivo razonable.
+     *
+     * @param mixed $value Valor recibido desde el formulario.
+     *
+     * @return int
+     */
+    protected function sanitize_batch_size( $value ) {
+        $size = absint( $value );
+
+        if ( $size < 10 ) {
+            $size = 10;
+        }
+
+        return $size;
+    }
+
+    /**
+     * Limpia la lista de precios seleccionada.
+     *
+     * @param string $value Valor recibido.
+     *
+     * @return string
+     */
+    protected function sanitize_price_list( $value ) {
+        $value   = is_string( $value ) ? $value : '';
+        $options = $this->get_price_list_options();
+
+        if ( array_key_exists( $value, $options ) ) {
+            return $value;
+        }
+
+        return 'none';
     }
 
     /**
@@ -740,6 +1112,7 @@ class Contifico_WooCommerce_Admin_Settings {
         ?>
         <div class="wrap">
             <h1><?php esc_html_e( 'Integración con Contifico', 'contifico-woocommerce' ); ?></h1>
+            <?php $this->render_configuration_diagnostics(); ?>
             <form action="options.php" method="post">
                 <?php
                 settings_fields( $option_group );
@@ -850,6 +1223,185 @@ class Contifico_WooCommerce_Admin_Settings {
     }
 
     /**
+     * Muestra un resumen del estado de la configuración actual.
+     *
+     * @return void
+     */
+    protected function render_configuration_diagnostics() {
+        $items = $this->evaluate_configuration_status();
+
+        if ( empty( $items ) ) {
+            return;
+        }
+
+        echo '<div class="contifico-settings-diagnostics">';
+        echo '<h2>' . esc_html__( 'Diagnóstico rápido', 'contifico-woocommerce' ) . '</h2>';
+        echo '<ul>';
+
+        foreach ( $items as $item ) {
+            $label   = isset( $item['label'] ) ? $item['label'] : '';
+            $message = isset( $item['message'] ) ? $item['message'] : '';
+            $status  = isset( $item['status'] ) ? $item['status'] : 'info';
+            $section = isset( $item['section'] ) ? $item['section'] : '';
+
+            $class = 'status-' . sanitize_html_class( $status );
+
+            if ( '' !== $section ) {
+                $label_output = sprintf( '<a href="%1$s">%2$s</a>', esc_url( $this->build_section_link( $section ) ), esc_html( $label ) );
+            } else {
+                $label_output = esc_html( $label );
+            }
+
+            printf(
+                '<li class="%1$s"><strong>%2$s</strong> %3$s</li>',
+                esc_attr( $class ),
+                $label_output,
+                esc_html( $message )
+            );
+        }
+
+        echo '</ul>';
+        echo '</div>';
+    }
+
+    /**
+     * Calcula el estado de cada bloque de configuración relevante.
+     *
+     * @return array
+     */
+    protected function evaluate_configuration_status() {
+        $settings = $this->get_settings();
+        $results  = array();
+
+        $api_ready = ! empty( $settings['api_url'] ) && ! empty( $settings['api_key'] ) && ! empty( $settings['api_secret'] );
+        $results[] = array(
+            'section' => 'contifico_woocommerce_api',
+            'label'   => __( 'Credenciales de API', 'contifico-woocommerce' ),
+            'status'  => $api_ready ? 'ok' : 'error',
+            'message' => $api_ready
+                ? __( 'Conexión configurada correctamente.', 'contifico-woocommerce' )
+                : __( 'Agrega la URL, el API Key y el API Secret para conectar con Contifico.', 'contifico-woocommerce' ),
+        );
+
+        $interval_options = $this->get_inventory_interval_options();
+        $interval_value   = isset( $settings['inventory_sync_interval'] ) ? $settings['inventory_sync_interval'] : 'hourly';
+        $interval_label   = isset( $interval_options[ $interval_value ] ) ? $interval_options[ $interval_value ] : $interval_options['hourly'];
+        $results[]        = array(
+            'section' => 'contifico_woocommerce_sync',
+            'label'   => __( 'Sincronización automática', 'contifico-woocommerce' ),
+            'status'  => 'manual' === $interval_value ? 'warning' : 'ok',
+            'message' => 'manual' === $interval_value
+                ? __( 'La sincronización automática está desactivada. Ejecuta los procesos manualmente cuando lo necesites.', 'contifico-woocommerce' )
+                : sprintf( __( 'Se ejecutará %s.', 'contifico-woocommerce' ), $interval_label ),
+        );
+
+        $price_list = isset( $settings['inventory_price_list'] ) ? $settings['inventory_price_list'] : 'none';
+        $price_map  = $this->get_price_list_options();
+        $results[]  = array(
+            'section' => 'contifico_woocommerce_sync',
+            'label'   => __( 'Lista de precios', 'contifico-woocommerce' ),
+            'status'  => 'none' === $price_list ? 'warning' : 'ok',
+            'message' => 'none' === $price_list
+                ? __( 'Los precios de WooCommerce no se actualizarán automáticamente.', 'contifico-woocommerce' )
+                : sprintf( __( 'Sincronizando precios con %s.', 'contifico-woocommerce' ), isset( $price_map[ $price_list ] ) ? $price_map[ $price_list ] : strtoupper( $price_list ) ),
+        );
+
+        $transfer_enabled = isset( $settings['inventory_transfer_enabled'] ) && 'yes' === $settings['inventory_transfer_enabled'];
+        if ( $transfer_enabled ) {
+            $source      = isset( $settings['inventory_transfer_source'] ) ? $settings['inventory_transfer_source'] : '';
+            $destination = isset( $settings['inventory_transfer_destination'] ) ? $settings['inventory_transfer_destination'] : '';
+            $decrease    = isset( $settings['inventory_transfer_decrease_statuses'] ) ? $settings['inventory_transfer_decrease_statuses'] : array();
+            $restore     = isset( $settings['inventory_transfer_restore_statuses'] ) ? $settings['inventory_transfer_restore_statuses'] : array();
+
+            if ( '' === $source || '' === $destination ) {
+                $results[] = array(
+                    'section' => 'contifico_woocommerce_inventory_transfer',
+                    'label'   => __( 'Transferencias de inventario', 'contifico-woocommerce' ),
+                    'status'  => 'error',
+                    'message' => __( 'Define las bodegas de origen y destino para automatizar los movimientos.', 'contifico-woocommerce' ),
+                );
+            } elseif ( empty( $decrease ) || empty( $restore ) ) {
+                $results[] = array(
+                    'section' => 'contifico_woocommerce_inventory_transfer',
+                    'label'   => __( 'Transferencias de inventario', 'contifico-woocommerce' ),
+                    'status'  => 'warning',
+                    'message' => __( 'Selecciona los estados que reservan y devuelven stock para completar la configuración.', 'contifico-woocommerce' ),
+                );
+            } else {
+                $results[] = array(
+                    'section' => 'contifico_woocommerce_inventory_transfer',
+                    'label'   => __( 'Transferencias de inventario', 'contifico-woocommerce' ),
+                    'status'  => 'ok',
+                    'message' => __( 'Los movimientos automáticos entre bodegas están activos.', 'contifico-woocommerce' ),
+                );
+            }
+        } else {
+            $results[] = array(
+                'section' => 'contifico_woocommerce_inventory_transfer',
+                'label'   => __( 'Transferencias de inventario', 'contifico-woocommerce' ),
+                'status'  => 'info',
+                'message' => __( 'Las transferencias automáticas están desactivadas.', 'contifico-woocommerce' ),
+            );
+        }
+
+        $invoice_enabled = isset( $settings['invoice_enabled'] ) && 'yes' === $settings['invoice_enabled'];
+        if ( $invoice_enabled ) {
+            $required = array(
+                $settings['invoice_trigger_status'],
+                $settings['invoice_sender_tax_id'],
+                $settings['invoice_sender_name'],
+                $settings['invoice_sender_email'],
+                $settings['invoice_sender_address'],
+            );
+
+            $environment = isset( $settings['invoice_environment'] ) ? $settings['invoice_environment'] : 'test';
+            $env_fields  = array(
+                $settings[ 'invoice_' . $environment . '_pos_token' ],
+                $settings[ 'invoice_' . $environment . '_establishment' ],
+                $settings[ 'invoice_' . $environment . '_emission_point' ],
+                $settings[ 'invoice_' . $environment . '_next_number' ],
+            );
+
+            $all_fields = array_merge( $required, $env_fields );
+
+            $results[] = array(
+                'section' => 'contifico_woocommerce_invoicing',
+                'label'   => __( 'Facturación electrónica', 'contifico-woocommerce' ),
+                'status'  => in_array( '', $all_fields, true ) ? 'error' : 'ok',
+                'message' => in_array( '', $all_fields, true )
+                    ? __( 'Completa los campos obligatorios para emitir documentos electrónicos.', 'contifico-woocommerce' )
+                    : __( 'La emisión automática de documentos está lista.', 'contifico-woocommerce' ),
+            );
+        } else {
+            $results[] = array(
+                'section' => 'contifico_woocommerce_invoicing',
+                'label'   => __( 'Facturación electrónica', 'contifico-woocommerce' ),
+                'status'  => 'info',
+                'message' => __( 'La generación automática de documentos está desactivada.', 'contifico-woocommerce' ),
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Calcula el enlace hacia una sección específica dentro de la página.
+     *
+     * @param string $section_id Identificador de la sección.
+     *
+     * @return string
+     */
+    protected function build_section_link( $section_id ) {
+        $section_id = sanitize_key( $section_id );
+
+        if ( '' === $section_id ) {
+            return '#';
+        }
+
+        return '#' . $section_id;
+    }
+
+    /**
      * Muestra un aviso contextual después de ejecutar la sincronización manual.
      *
      * @return void
@@ -882,5 +1434,41 @@ class Contifico_WooCommerce_Admin_Settings {
             esc_attr( $class ),
             esc_html( $notice['message'] )
         );
+    }
+
+    /**
+     * Permite descargar el archivo de log generado por la API.
+     *
+     * @return void
+     */
+    public function handle_api_log_download() {
+        if ( ! current_user_can( 'manage_woocommerce' ) ) {
+            wp_die( esc_html__( 'No tienes permisos para realizar esta acción.', 'contifico-woocommerce' ) );
+        }
+
+        check_admin_referer( 'contifico_download_api_log' );
+
+        if ( ! class_exists( 'Contifico_WooCommerce_Api_Contifico_Client' ) ) {
+            wp_die( esc_html__( 'El registro solicitado no está disponible.', 'contifico-woocommerce' ) );
+        }
+
+        $path = Contifico_WooCommerce_Api_Contifico_Client::get_log_file_path();
+
+        if ( ! $path || ! file_exists( $path ) ) {
+            wp_die( esc_html__( 'No se encontró el archivo de registro.', 'contifico-woocommerce' ) );
+        }
+
+        if ( ! is_readable( $path ) ) {
+            wp_die( esc_html__( 'El archivo de registro no se puede leer en el servidor.', 'contifico-woocommerce' ) );
+        }
+
+        nocache_headers();
+
+        header( 'Content-Type: text/plain' );
+        header( 'Content-Disposition: attachment; filename=' . basename( $path ) );
+        header( 'Content-Length: ' . filesize( $path ) );
+
+        readfile( $path );
+        exit;
     }
 }
