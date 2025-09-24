@@ -29,6 +29,21 @@ if ( ! function_exists( 'esc_html__' ) ) {
     }
 }
 
+if ( ! function_exists( 'wp_parse_args' ) ) {
+    function wp_parse_args( $args, $defaults = array() ) {
+        if ( is_object( $args ) ) {
+            $args = get_object_vars( $args );
+        }
+
+        if ( ! is_array( $args ) ) {
+            $args = array();
+        }
+
+        return array_merge( $defaults, $args );
+    }
+}
+
+
 if ( ! function_exists( 'esc_html' ) ) {
     function esc_html( $text ) {
         return $text;
