@@ -275,11 +275,12 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
      * @return array
      */
     protected function process_inventory_response( array $warehouses ) {
-        $grouped_inventory = array();
-        $updated_products  = array();
-        $errors            = array();
-        $warehouses_count  = 0;
-        $items_processed   = 0;
+        $existing_inventory = $this->get_products_with_inventory_meta();
+        $grouped_inventory  = array();
+        $updated_products   = array();
+        $errors             = array();
+        $warehouses_count   = 0;
+        $items_processed    = 0;
 
         foreach ( $warehouses as $warehouse ) {
             $warehouse_id = $this->get_warehouse_id( $warehouse );
@@ -354,6 +355,25 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
             }
         }
 
+        $products_in_response = array_map( 'absint', array_keys( $grouped_inventory ) );
+        $products_in_response = array_values( array_filter( array_unique( $products_in_response ) ) );
+
+        $stale_products  = array_diff( $existing_inventory, $products_in_response );
+        $products_cleaned = 0;
+
+        if ( ! empty( $stale_products ) ) {
+            foreach ( $stale_products as $product_id ) {
+                $product_id = absint( $product_id );
+
+                if ( ! $product_id ) {
+                    continue;
+                }
+
+                delete_post_meta( $product_id, self::META_KEY );
+                $products_cleaned++;
+            }
+        }
+
         foreach ( $grouped_inventory as $product_id => $warehouses_stock ) {
             if ( empty( $warehouses_stock ) ) {
                 delete_post_meta( $product_id, self::META_KEY );
@@ -367,8 +387,40 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
             'warehouses'       => $warehouses_count,
             'products_updated' => count( $updated_products ),
             'items_processed'  => $items_processed,
+            'products_cleaned' => $products_cleaned,
             'errors'           => $errors,
         );
+    }
+
+    /**
+     * Obtiene el listado de productos que actualmente almacenan el meta de inventario.
+     *
+     * @return array
+     */
+    protected function get_products_with_inventory_meta() {
+        if ( ! function_exists( 'get_posts' ) ) {
+            return array();
+        }
+
+        $posts = get_posts(
+            array(
+                'post_type'      => array( 'product', 'product_variation' ),
+                'meta_key'       => self::META_KEY,
+                'fields'         => 'ids',
+                'posts_per_page' => -1,
+                'post_status'    => 'any',
+                'no_found_rows'  => true,
+                'suppress_filters' => true,
+            )
+        );
+
+        if ( ! is_array( $posts ) ) {
+            return array();
+        }
+
+        $posts = array_map( 'absint', $posts );
+
+        return array_values( array_filter( array_unique( $posts ) ) );
     }
 
     /**
@@ -448,7 +500,9 @@ class Contifico_WooCommerce_Sync_Inventory_Sync {
             if ( isset( $item[ $key ] ) && '' !== $item[ $key ] ) {
                 $candidate = absint( $item[ $key ] );
 
-                if ( $candidate && 'product' === get_post_type( $candidate ) ) {
+                $post_type = $candidate ? get_post_type( $candidate ) : '';
+
+                if ( $candidate && in_array( $post_type, array( 'product', 'product_variation' ), true ) ) {
                     return $candidate;
                 }
             }
